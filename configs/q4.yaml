@@ -1,0 +1,66 @@
+# Q4 — 多车、含时间窗惩罚+容量约束（50 节点）+ 车辆数敏感性分析
+problem: q4
+description: "Multi-vehicle, time-window penalty, capacity constraint (50 customers), vehicle sensitivity analysis"
+
+data:
+  raw_excel: data/raw/reference_case.xlsx
+  processed_dir: data/processed/
+  num_customers: 50
+
+solver:
+  backend: hybrid
+  time_limit_sec: 600
+  seed: 42
+
+# 车辆参数
+vehicle:
+  capacity: 100              # 单车最大载重
+  # 车辆数优化策略：
+  #   lexicographic — 词典序（先最少车辆，再最小总费用）
+  #   weighted      — 加权和（对照实验）
+  optimization_mode: lexicographic
+  weight_cost: 1.0           # 加权和模式下：总运输时间权重
+  weight_tw: 1.0             # 加权和模式下：时间窗惩罚权重
+  weight_vehicles: 100.0     # 加权和模式下：车辆数权重
+
+# 车辆数敏感性分析范围
+sensitivity:
+  min_vehicles: 2
+  max_vehicles: 10
+  step: 1
+
+hybrid:
+  cluster_method: kmeans
+  n_clusters: 5
+  sub_solver: sa
+  local_search_iter: 500
+  seed: 42
+
+sa:
+  initial_temp: 5000.0
+  cooling_rate: 0.997
+  min_temp: 1e-4
+  n_iter_per_temp: 500
+  seed: 42
+
+kaiwu:
+  endpoint: ""
+  token: ""
+  num_reads: 300
+  annealing_time: 60
+
+time_window:
+  alpha: 10
+  beta: 20
+
+qubo:
+  penalty_visit: 500
+  penalty_position: 500
+  penalty_tw: 100
+  penalty_capacity: 500
+
+output:
+  log_dir: outputs/logs/
+  figure_dir: outputs/figures/
+  table_dir: outputs/tables/
+  log_level: INFO

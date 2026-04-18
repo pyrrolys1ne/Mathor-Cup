@@ -1,0 +1,42 @@
+# Q2 — 单车、含时间窗惩罚、无容量（15 节点）
+problem: q2
+description: "Single vehicle, time-window penalty, no capacity constraint (15 customers)"
+
+data:
+  raw_excel: data/raw/reference_case.xlsx
+  processed_dir: data/processed/
+  num_customers: 15
+
+solver:
+  backend: sa
+  time_limit_sec: 120
+  seed: 42
+
+sa:
+  initial_temp: 2000.0
+  cooling_rate: 0.995
+  min_temp: 1e-4
+  n_iter_per_temp: 300
+  seed: 42
+
+kaiwu:
+  endpoint: ""
+  token: ""
+  num_reads: 200
+  annealing_time: 30
+
+# 时间窗惩罚系数（penalty_i = alpha*max(0,e_i-t_i)^2 + beta*max(0,t_i-l_i)^2）
+time_window:
+  alpha: 10                  # 早到惩罚系数
+  beta: 20                   # 晚到惩罚系数
+
+qubo:
+  penalty_visit: 500
+  penalty_position: 500
+  penalty_tw: 100            # 时间窗 soft 约束权重
+
+output:
+  log_dir: outputs/logs/
+  figure_dir: outputs/figures/
+  table_dir: outputs/tables/
+  log_level: INFO

@@ -1,0 +1,43 @@
+# Q1 — 单车、无时间窗、无容量（15 节点）
+problem: q1
+description: "Single vehicle, no time windows, no capacity constraint (15 customers)"
+
+# 数据路径
+data:
+  raw_excel: data/raw/reference_case.xlsx
+  processed_dir: data/processed/
+  num_customers: 15          # 不含配送中心（ID=0）
+
+# 求解器配置
+solver:
+  backend: sa                 # sa | kaiwu
+  time_limit_sec: 60
+  seed: 42
+
+# 模拟退火超参
+sa:
+  initial_temp: 1000.0
+  cooling_rate: 0.995
+  min_temp: 1e-4
+  n_iter_per_temp: 200
+  seed: 42
+
+# Kaiwu SDK 超参（backend=kaiwu 时生效）
+kaiwu:
+  # TODO: 填入实际 Kaiwu API 地址与鉴权信息
+  endpoint: ""
+  token: ""
+  num_reads: 100
+  annealing_time: 20
+
+# QUBO 惩罚系数
+qubo:
+  penalty_visit: 500         # 每个节点恰好访问一次
+  penalty_position: 500      # 每个位置恰好一辆车
+
+# 输出
+output:
+  log_dir: outputs/logs/
+  figure_dir: outputs/figures/
+  table_dir: outputs/tables/
+  log_level: INFO
