@@ -36,6 +36,11 @@ qubo:
   penalty_position: 500
   penalty_tw: 100            # 时间窗 soft 约束权重
 
+# 导出到真机前的精度适配（8bit）
+qubo_export:
+  precision_method: truncate # none | truncate | mutate | split
+  target_bits: 8
+
 output:
   log_dir: outputs/logs/
   figure_dir: outputs/figures/

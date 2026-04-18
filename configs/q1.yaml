@@ -1,4 +1,4 @@
-# Q1 — 单车、无时间窗、无容量（15 节点）
+﻿# Q1 — 单车、无时间窗、无容量（15 节点）
 problem: q1
 description: "Single vehicle, no time windows, no capacity constraint (15 customers)"
 
@@ -10,7 +10,7 @@ data:
 
 # 求解器配置
 solver:
-  backend: kaiwu              # sa | kaiwu
+  backend: kaiwu             # sa | kaiwu
   time_limit_sec: 60
   seed: 42
 
@@ -27,17 +27,23 @@ kaiwu:
   # 建议通过环境变量注入密钥：KAIWU_USER_ID / KAIWU_SDK_CODE
   user_id: ""
   sdk_code: ""
-  num_reads: 300             # 采样预算（越大越稳，越慢）
-  annealing_time: 60         # 退火强度（越大通常质量越好）
-  n_runs: 5                  # 多次独立采样，主程序会自动取最优
+  num_reads: 500             # 采样预算（越大越稳，越慢）
+  annealing_time: 100         # 退火强度（越大通常质量越好）
+  n_runs: 1                  # 多次独立采样，主程序会自动取最优
   postprocess_two_opt: true  # Kaiwu 路线后执行 2-opt 精修
   seed: 42                   # 基准种子（每轮会自动偏移）
   quiet: true                # 减少 Kaiwu 内部日志
 
 # QUBO 惩罚系数
 qubo:
-  penalty_visit: 300         # 每个节点恰好访问一次
-  penalty_position: 300      # 每个位置恰好一辆车
+  penalty_visit: 1181       # 提高可行性：抑制“同一节点多位置”
+  penalty_position: 756      # 提高可行性：抑制“同一位置多节点"
+
+# 导出到真机前的精度适配（8bit）
+qubo_export:
+  precision_method: mutate   # none | truncate | mutate | split
+  output_model: ising        # qubo | ising
+  target_bits: 8
 
 # 输出
 output:

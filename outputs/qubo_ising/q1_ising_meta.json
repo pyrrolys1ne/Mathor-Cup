@@ -1,0 +1,11 @@
+{
+  "problem": "q1",
+  "output_model": "ising",
+  "method": "mutate-via-ising-aux",
+  "n_vars_original": 256,
+  "n_vars_exported": 257,
+  "max_abs_original": 1312.0,
+  "max_abs_exported": 127.0,
+  "ising_aux_index": 256,
+  "decode_supported": false
+}
