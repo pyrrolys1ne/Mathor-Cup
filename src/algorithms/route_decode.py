@@ -1,0 +1,100 @@
+"""
+src/algorithms/route_decode.py
+--------------------------------
+Decode QUBO binary solutions into valid routes.
+
+Handles sub-graph decoding where node IDs in the sub-graph may differ
+from the full problem node IDs.
+"""
+
+from __future__ import annotations
+
+import logging
+
+import numpy as np
+
+from src.core.graph_model import ProblemGraph
+from src.qubo.q1_qubo import Q1QUBOResult, decode_q1_solution
+
+logger = logging.getLogger(__name__)
+
+
+def decode_sub_route(
+    x: np.ndarray,
+    sub_graph: ProblemGraph,
+    qubo_result: Q1QUBOResult,
+) -> list[int]:
+    """Decode a QUBO solution on a sub-graph to a customer-only route.
+
+    The sub-graph uses the *original* node IDs (depot=0, customers=original IDs).
+    This function decodes the binary vector, strips the depot from both ends,
+    and returns only the customer IDs in order.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Binary QUBO solution vector.
+    sub_graph : ProblemGraph
+        Sub-graph on which QUBO was built.
+    qubo_result : Q1QUBOResult
+        QUBO metadata.
+
+    Returns
+    -------
+    list[int]
+        Ordered customer IDs for the sub-route (no depot).
+
+    Complexity
+    ----------
+    O(K²) for decoding.
+    """
+    route = decode_q1_solution(x, qubo_result.n_nodes, qubo_result.var_idx)
+    # Remove depot bookends
+    customers = [n for n in route if n != sub_graph.depot_id]
+    return customers
+
+
+def nearest_neighbour_route(
+    graph: ProblemGraph,
+    start: int | None = None,
+    seed: int = 42,
+) -> list[int]:
+    """Construct a route using the nearest-neighbour heuristic.
+
+    Starting from the depot (or ``start``), always move to the nearest
+    unvisited customer, then return to depot.
+
+    Parameters
+    ----------
+    graph : ProblemGraph
+    start : int | None
+        Starting node (defaults to depot 0).
+    seed : int
+        Random seed (used only if tie-breaking is needed).
+
+    Returns
+    -------
+    list[int]
+        Route including depot at start and end.
+
+    Complexity
+    ----------
+    O(N²)
+    """
+    rng = np.random.default_rng(seed)
+    if start is None:
+        start = graph.depot_id
+
+    unvisited = set(graph.customer_ids)
+    route = [start]
+    current = start
+
+    while unvisited:
+        # Find nearest unvisited
+        nearest = min(unvisited, key=lambda n: graph.travel(current, n))
+        route.append(nearest)
+        unvisited.remove(nearest)
+        current = nearest
+
+    route.append(graph.depot_id)
+    return route

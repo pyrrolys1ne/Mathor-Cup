@@ -1,0 +1,49 @@
+# Q3 — 单车大规模（50 节点，分解+混合求解）
+problem: q3
+description: "Single vehicle, large-scale 50 customers, decomposition + hybrid solver"
+
+data:
+  raw_excel: data/raw/reference_case.xlsx
+  processed_dir: data/processed/
+  num_customers: 50
+
+solver:
+  backend: hybrid             # hybrid | sa | kaiwu
+  time_limit_sec: 300
+  seed: 42
+
+# 混合算法参数
+hybrid:
+  cluster_method: kmeans      # kmeans | dbscan
+  n_clusters: 5               # 子问题数量
+  sub_solver: sa              # 子问题求解器：sa | kaiwu
+  local_search_iter: 500      # 全局拼接后的局部搜索轮数
+  seed: 42
+
+sa:
+  initial_temp: 3000.0
+  cooling_rate: 0.997
+  min_temp: 1e-4
+  n_iter_per_temp: 500
+  seed: 42
+
+kaiwu:
+  endpoint: ""
+  token: ""
+  num_reads: 200
+  annealing_time: 30
+
+time_window:
+  alpha: 10
+  beta: 20
+
+qubo:
+  penalty_visit: 500
+  penalty_position: 500
+  penalty_tw: 100
+
+output:
+  log_dir: outputs/logs/
+  figure_dir: outputs/figures/
+  table_dir: outputs/tables/
+  log_level: INFO
