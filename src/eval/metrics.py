@@ -62,13 +62,14 @@ def single_route_metrics(
     O(N)
     """
     timing = simulate_route_timing(route, graph, alpha, beta)
+    tw_enabled = not (abs(alpha) < 1e-12 and abs(beta) < 1e-12)
     per_node = [
         {
             "node_id": r.node_id,
             "arrival_time": r.arrival_time,
-            "early_violation": r.early_violation,
-            "late_violation": r.late_violation,
-            "penalty": r.penalty,
+            "early_violation": r.early_violation if tw_enabled else 0.0,
+            "late_violation": r.late_violation if tw_enabled else 0.0,
+            "penalty": r.penalty if tw_enabled else 0.0,
         }
         for r in timing.records
     ]

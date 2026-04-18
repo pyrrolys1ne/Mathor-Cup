@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import click
+import numpy as np
 import yaml
 
 # ---------------------------------------------------------------------------
@@ -46,6 +48,28 @@ def _setup_logging(log_dir: str, log_level: str, problem: str) -> None:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _as_float(value: Any, default: float) -> float:
+    """Safely coerce config values to float."""
+    if value is None:
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid float config value=%r, fallback to %s", value, default)
+        return float(default)
+
+
+def _as_int(value: Any, default: int) -> int:
+    """Safely coerce config values to int."""
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid int config value=%r, fallback to %s", value, default)
+        return int(default)
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +126,31 @@ def run_data_phase(cfg: dict[str, Any]) -> tuple:
         processed_dir=data_cfg.get("processed_dir"),
     )
     n_customers = data_cfg.get("num_customers")
+
+    # Keep experiment scale consistent with config by truncating customers when
+    # the raw file contains a larger instance (e.g., Q1/Q2 config=15, raw=50).
+    if n_customers is not None:
+        expected = int(n_customers)
+        actual = len(nodes) - 1
+        if 0 < expected < actual:
+            customer_ids = sorted(
+                nodes.loc[nodes["node_id"] != 0, "node_id"].astype(int).tolist()
+            )
+            kept_customers = customer_ids[:expected]
+            keep_ids = [0] + kept_customers
+            nodes = (
+                nodes[nodes["node_id"].isin(keep_ids)]
+                .sort_values("node_id")
+                .reset_index(drop=True)
+            )
+            travel_time = travel_time[np.ix_(keep_ids, keep_ids)]
+            logger.info(
+                "Down-sampled instance by config: customers %d -> %d (kept node IDs 1..%d)",
+                actual,
+                expected,
+                expected,
+            )
+
     report = validate_or_raise(nodes, travel_time, expected_n_customers=n_customers)
     logger.info("Data validation passed.\n%s", report.summary())
 
@@ -123,11 +172,11 @@ def run_q1(cfg: dict[str, Any], graph) -> None:
     sa_cfg_dict = cfg.get("sa", {})
 
     sa_cfg = SAConfig(
-        initial_temp=sa_cfg_dict.get("initial_temp", 1000.0),
-        cooling_rate=sa_cfg_dict.get("cooling_rate", 0.995),
-        min_temp=sa_cfg_dict.get("min_temp", 1e-4),
-        n_iter_per_temp=sa_cfg_dict.get("n_iter_per_temp", 200),
-        seed=sa_cfg_dict.get("seed", 42),
+        initial_temp=_as_float(sa_cfg_dict.get("initial_temp"), 1000.0),
+        cooling_rate=_as_float(sa_cfg_dict.get("cooling_rate"), 0.995),
+        min_temp=_as_float(sa_cfg_dict.get("min_temp"), 1e-4),
+        n_iter_per_temp=_as_int(sa_cfg_dict.get("n_iter_per_temp"), 200),
+        seed=_as_int(sa_cfg_dict.get("seed"), 42),
     )
 
     backend = solver_cfg.get("backend", "sa")
@@ -146,8 +195,62 @@ def run_q1(cfg: dict[str, Any], graph) -> None:
 
             kw_cfg = cfg.get("kaiwu", {})
             kw = KaiwuConfig(**{k: v for k, v in kw_cfg.items() if k in KaiwuConfig.__dataclass_fields__})
-            x = solve_qubo_kaiwu(qr.Q, kw)
-            route = decode_q1_solution(x, qr.n_nodes, qr.var_idx)
+            n_runs = max(1, _as_int(kw_cfg.get("n_runs"), 1))
+            post_two_opt = bool(kw_cfg.get("postprocess_two_opt", True))
+            base_seed = kw.seed
+
+            best_route: list[int] | None = None
+            best_cost = float("inf")
+
+            for run_idx in range(n_runs):
+                run_no = run_idx + 1
+                run_t0 = time.perf_counter()
+
+                # For reproducibility, use base seed + run index (no cumulative drift).
+                if base_seed is not None:
+                    kw.seed = int(base_seed) + run_idx
+
+                logger.info(
+                    "Q1 Kaiwu run %d/%d start (seed=%s, num_reads=%d, annealing_time=%d)",
+                    run_no,
+                    n_runs,
+                    kw.seed,
+                    kw.num_reads,
+                    kw.annealing_time,
+                )
+
+                x = solve_qubo_kaiwu(qr.Q, kw)
+                cand_route = decode_q1_solution(x, qr.n_nodes, qr.var_idx)
+
+                if post_two_opt:
+                    customers = [n for n in cand_route if n != graph.depot_id]
+                    customers = two_opt(customers, graph)
+                    cand_route = [graph.depot_id] + customers + [graph.depot_id]
+
+                cand_cost = graph.route_travel_time(cand_route)
+                if cand_cost < best_cost:
+                    best_cost = cand_cost
+                    best_route = cand_route
+
+                logger.info(
+                    "Q1 Kaiwu run %d/%d done: travel=%.4f, best_so_far=%.4f, elapsed=%.2fs",
+                    run_no,
+                    n_runs,
+                    cand_cost,
+                    best_cost,
+                    time.perf_counter() - run_t0,
+                )
+
+            if best_route is None:
+                raise RuntimeError("Kaiwu produced no valid route.")
+
+            route = best_route
+            logger.info(
+                "Q1 Kaiwu search complete: runs=%d, post_two_opt=%s, best_travel=%.4f",
+                n_runs,
+                post_two_opt,
+                best_cost,
+            )
         except Exception as exc:
             logger.warning("Kaiwu failed (%s); falling back to SA.", exc)
             backend = "sa"
@@ -184,21 +287,25 @@ def run_q2(cfg: dict[str, Any], graph) -> None:
     """Run Problem 2 solver and output results."""
     from src.algorithms.local_search import two_opt
     from src.eval.metrics import save_metrics_csv, single_route_metrics
+    from src.qubo.q1_qubo import decode_q1_solution
+    from src.qubo.q2_qubo import build_q2_qubo
     from src.solvers.sa_solver import SAConfig, solve_route_sa
     from src.viz.plot_routes import plot_single_route
 
     output_cfg = cfg["output"]
+    solver_cfg = cfg.get("solver", {})
+    qubo_cfg = cfg.get("qubo", {})
     tw_cfg = cfg.get("time_window", {})
     sa_cfg_dict = cfg.get("sa", {})
     alpha = tw_cfg.get("alpha", 10.0)
     beta = tw_cfg.get("beta", 20.0)
 
     sa_cfg = SAConfig(
-        initial_temp=sa_cfg_dict.get("initial_temp", 2000.0),
-        cooling_rate=sa_cfg_dict.get("cooling_rate", 0.995),
-        min_temp=sa_cfg_dict.get("min_temp", 1e-4),
-        n_iter_per_temp=sa_cfg_dict.get("n_iter_per_temp", 300),
-        seed=sa_cfg_dict.get("seed", 42),
+        initial_temp=_as_float(sa_cfg_dict.get("initial_temp"), 2000.0),
+        cooling_rate=_as_float(sa_cfg_dict.get("cooling_rate"), 0.995),
+        min_temp=_as_float(sa_cfg_dict.get("min_temp"), 1e-4),
+        n_iter_per_temp=_as_int(sa_cfg_dict.get("n_iter_per_temp"), 300),
+        seed=_as_int(sa_cfg_dict.get("seed"), 42),
     )
 
     from src.core.time_window import simulate_route_timing
@@ -207,9 +314,30 @@ def run_q2(cfg: dict[str, Any], graph) -> None:
         timing = simulate_route_timing(perm, graph, alpha, beta)
         return timing.total_travel_time + timing.total_penalty
 
-    sa_result = solve_route_sa(graph.customer_ids, cost_fn, sa_cfg)
-    improved = two_opt(sa_result.best_solution, graph)
-    route = [graph.depot_id] + improved + [graph.depot_id]
+    backend = solver_cfg.get("backend", "sa")
+    logger.info("Q2: backend=%s, n_customers=%d", backend, graph.n_customers)
+
+    if backend == "kaiwu":
+        qr = build_q2_qubo(
+            graph,
+            penalty_visit=qubo_cfg.get("penalty_visit", 500),
+            penalty_position=qubo_cfg.get("penalty_position", 500),
+        )
+        try:
+            from src.solvers.kaiwu_solver import KaiwuConfig, solve_qubo_kaiwu
+
+            kw_cfg = cfg.get("kaiwu", {})
+            kw = KaiwuConfig(**{k: v for k, v in kw_cfg.items() if k in KaiwuConfig.__dataclass_fields__})
+            x = solve_qubo_kaiwu(qr.Q, kw)
+            route = decode_q1_solution(x, qr.n_nodes, qr.var_idx)
+        except Exception as exc:
+            logger.warning("Kaiwu failed (%s); falling back to SA.", exc)
+            backend = "sa"
+
+    if backend == "sa":
+        sa_result = solve_route_sa(graph.customer_ids, cost_fn, sa_cfg)
+        improved = two_opt(sa_result.best_solution, graph)
+        route = [graph.depot_id] + improved + [graph.depot_id]
 
     metrics = single_route_metrics(route, graph, alpha=alpha, beta=beta)
     logger.info(
@@ -237,23 +365,31 @@ def run_q3(cfg: dict[str, Any], graph) -> None:
     from src.viz.plot_routes import plot_clusters, plot_single_route
 
     output_cfg = cfg["output"]
+    solver_cfg = cfg.get("solver", {})
     hybrid_cfg_dict = cfg.get("hybrid", {})
     sa_cfg_dict = cfg.get("sa", {})
     tw_cfg = cfg.get("time_window", {})
     alpha = tw_cfg.get("alpha", 10.0)
     beta = tw_cfg.get("beta", 20.0)
 
+    backend = solver_cfg.get("backend", "hybrid").lower()
+    if backend in {"sa", "kaiwu"}:
+        sub_solver = backend
+    else:
+        sub_solver = hybrid_cfg_dict.get("sub_solver", "sa")
+    logger.info("Q3: backend=%s, sub_solver=%s, n_customers=%d", backend, sub_solver, graph.n_customers)
+
     sa_cfg = SAConfig(
-        initial_temp=sa_cfg_dict.get("initial_temp", 3000.0),
-        cooling_rate=sa_cfg_dict.get("cooling_rate", 0.997),
-        min_temp=sa_cfg_dict.get("min_temp", 1e-4),
-        n_iter_per_temp=sa_cfg_dict.get("n_iter_per_temp", 500),
-        seed=sa_cfg_dict.get("seed", 42),
+        initial_temp=_as_float(sa_cfg_dict.get("initial_temp"), 3000.0),
+        cooling_rate=_as_float(sa_cfg_dict.get("cooling_rate"), 0.997),
+        min_temp=_as_float(sa_cfg_dict.get("min_temp"), 1e-4),
+        n_iter_per_temp=_as_int(sa_cfg_dict.get("n_iter_per_temp"), 500),
+        seed=_as_int(sa_cfg_dict.get("seed"), 42),
     )
     h_cfg = HybridConfig(
         cluster_method=hybrid_cfg_dict.get("cluster_method", "kmeans"),
         n_clusters=hybrid_cfg_dict.get("n_clusters", 5),
-        sub_solver=hybrid_cfg_dict.get("sub_solver", "sa"),
+        sub_solver=sub_solver,
         local_search_iter=hybrid_cfg_dict.get("local_search_iter", 500),
         seed=hybrid_cfg_dict.get("seed", 42),
         sa_cfg=sa_cfg,
@@ -315,11 +451,11 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
     vehicle_capacity = vehicle_cfg.get("capacity", 100.0)
 
     sa_cfg = SAConfig(
-        initial_temp=sa_cfg_dict.get("initial_temp", 5000.0),
-        cooling_rate=sa_cfg_dict.get("cooling_rate", 0.997),
-        min_temp=sa_cfg_dict.get("min_temp", 1e-4),
-        n_iter_per_temp=sa_cfg_dict.get("n_iter_per_temp", 500),
-        seed=sa_cfg_dict.get("seed", 42),
+        initial_temp=_as_float(sa_cfg_dict.get("initial_temp"), 5000.0),
+        cooling_rate=_as_float(sa_cfg_dict.get("cooling_rate"), 0.997),
+        min_temp=_as_float(sa_cfg_dict.get("min_temp"), 1e-4),
+        n_iter_per_temp=_as_int(sa_cfg_dict.get("n_iter_per_temp"), 500),
+        seed=_as_int(sa_cfg_dict.get("seed"), 42),
     )
 
     # Cluster and assign vehicles

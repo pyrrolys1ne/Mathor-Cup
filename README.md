@@ -44,26 +44,58 @@ Quantum Computing-Based Smart Logistics Optimization Modeling and Algorithm Desi
 
 ## Quick Start
 
-```bash
-# 1. 建立虚拟环境（Python 3.10）
-python3.10 -m venv .venv && source .venv/bin/activate
+### Windows (PowerShell)
 
-# 2. 安装依赖
-pip install -r requirements.txt
-pip install -e .
+```powershell
+# 1) 进入项目目录
+cd "c:\Users\ayaka\Desktop\Mathor Cup\MathorCup_A"
 
-# 3. 将原始数据放入 data/raw/
-cp /path/to/reference_case.xlsx data/raw/
+# 2) 创建并激活虚拟环境（Python 3.10）
+# 如果 Kaiwu 只安装在系统 Python，可使用 --system-site-packages 继承它
+C:\Users\ayaka\AppData\Local\Programs\Python\Python310\python.exe -m venv .venv --system-site-packages
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
 
-# 4. 运行各题
+# 3) 安装依赖
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --only-binary=:all: -r requirements.txt
+python -m pip install -e .
+
+# 4) 放置原始数据
+# data/raw/reference_case.xlsx
+
+# 5) （可选）配置 Kaiwu 鉴权信息
+$env:KAIWU_USER_ID="<your_user_id>"
+$env:KAIWU_SDK_CODE="<your_sdk_code>"
+
+# 6) 运行各题
 python -m src.main --config configs/q1.yaml   # 问题1
 python -m src.main --config configs/q2.yaml   # 问题2
 python -m src.main --config configs/q3.yaml   # 问题3
 python -m src.main --config configs/q4.yaml   # 问题4
 
-# 5. 运行测试
+# 7) 运行测试
 pytest tests/ -v
 ```
+
+### Linux / macOS
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt
+python -m pip install -e .
+python -m src.main --config configs/q1.yaml
+```
+
+## Runtime Notes
+
+1. 解释器一致性：请确保安装依赖和运行命令使用同一个 Python/venv（建议统一使用 `.venv`）。
+2. Kaiwu 依赖：部分环境下 `pip install kaiwu` 可能不可用，若系统 Python 已安装 Kaiwu，建议创建 venv 时使用 `--system-site-packages`。
+3. 鉴权配置：优先通过环境变量 `KAIWU_USER_ID` / `KAIWU_SDK_CODE` 注入，避免把密钥写入配置文件。
+4. 数据规模对齐：当原始表是 50 客户而 `q1.yaml`/`q2.yaml` 配置 `num_customers=15` 时，程序会自动截取前 15 个客户参与求解，避免口径混乱。
+5. 输出位置：日志、图、表分别写入 `outputs/logs/`、`outputs/figures/`、`outputs/tables/`。
 
 ## Problems
 
@@ -82,8 +114,8 @@ penalty_i = 10 * max(0, e_i - t_i)^2 + 20 * max(0, t_i - l_i)^2
 
 ## Solver Backends
 
-1. **Kaiwu SDK**（主，量子/量子启发式）
-2. **Simulated Annealing**（备，经典）
+1. **Kaiwu SDK**
+2. **Simulated Annealing**
 3. **Hybrid Large-Scale**（Q3/Q4，聚类分解 + QUBO + 局部修复）
 
 ## Dependencies
@@ -92,4 +124,4 @@ penalty_i = 10 * max(0, e_i - t_i)^2 + 20 * max(0, t_i - l_i)^2
 - numpy, pandas, scipy, scikit-learn
 - matplotlib, seaborn, networkx
 - pyyaml, click, rich
-- kaiwu SDK（可选，需单独安装）
+- kaiwu SDK

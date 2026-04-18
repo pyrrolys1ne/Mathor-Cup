@@ -44,8 +44,9 @@ sa:
   seed: 42
 
 kaiwu:
-  endpoint: ""
-  token: ""
+  # 建议通过环境变量注入密钥：KAIWU_USER_ID / KAIWU_SDK_CODE
+  user_id: ""
+  sdk_code: ""
   num_reads: 300
   annealing_time: 60
 

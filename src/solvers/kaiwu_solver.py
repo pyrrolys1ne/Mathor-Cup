@@ -8,8 +8,8 @@ Because the public Kaiwu API may change or may not be available in all
 environments, all calls are guarded by a ``try/except`` and the module
 degrades gracefully to a warning when the SDK is not installed.
 
-TODO: Fill in the actual Kaiwu API calls once SDK documentation is confirmed.
-      The interface contract below must be preserved regardless of SDK version.
+The interface contract below is preserved so callers can switch between
+SA and Kaiwu backends without changing upstream code.
 
 Interface contract:
   - ``solve_qubo_kaiwu(Q, cfg)`` accepts a numpy QUBO matrix and returns
@@ -21,6 +21,7 @@ Interface contract:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -32,9 +33,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 try:
-    # TODO: Replace with the actual import path once SDK is confirmed.
-    # import kaiwu  # noqa: F401
-    _KAIWU_AVAILABLE = False  # Set to True when SDK is installed
+    import kaiwu.license as kaiwu_license
+    from kaiwu.qubo import qubo_matrix_to_qubo_model
+    from kaiwu.sampler import SimulatedAnnealingSampler
+    from kaiwu.solver import SimpleSolver
+
+    _KAIWU_AVAILABLE = True
 except ImportError:
     _KAIWU_AVAILABLE = False
     logger.info("Kaiwu SDK not found. Kaiwu backend unavailable.")
@@ -60,20 +64,34 @@ class KaiwuConfig:
 
     Attributes
     ----------
-    endpoint : str
-        API endpoint URL.
-    token : str
-        Authentication token / API key.
+    user_id : str
+        Kaiwu license user id. If empty, environment variable KAIWU_USER_ID is used.
+    sdk_code : str
+        Kaiwu license code. If empty, environment variable KAIWU_SDK_CODE is used.
     num_reads : int
         Number of solution reads (samples) to request.
     annealing_time : int
         Annealing duration in microseconds (device-specific).
+    seed : int | None
+        Random seed for sampler. None means SDK default randomness.
+    quiet : bool
+        If True, suppress verbose Kaiwu internal logs when possible.
+
+    Notes
+    -----
+    The legacy fields ``endpoint`` and ``token`` are kept for backward
+    compatibility with older config files, but they are not used by the
+    currently validated local Kaiwu SDK license flow.
     """
 
-    endpoint: str = ""
-    token: str = ""
+    user_id: str = ""
+    sdk_code: str = ""
+    endpoint: str = ""  # legacy compatibility
+    token: str = ""     # legacy compatibility
     num_reads: int = 100
     annealing_time: int = 20
+    seed: int | None = None
+    quiet: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -109,14 +127,6 @@ def solve_qubo_kaiwu(
     Depends on the Kaiwu backend; typically O(1) from the caller's view
     (the complexity is on the quantum device side).
 
-    TODO
-    ----
-    1. Import the actual kaiwu SDK.
-    2. Convert Q to the SDK's native format (e.g., QUBO dict or Ising Hamiltonian).
-    3. Instantiate the sampler with endpoint and token.
-    4. Call sampler.sample_qubo() or equivalent.
-    5. Extract the best sample from the SampleSet.
-    6. Convert to numpy binary array and return.
     """
     if not _KAIWU_AVAILABLE:
         raise KaiwuUnavailableError(
@@ -127,28 +137,37 @@ def solve_qubo_kaiwu(
     if cfg is None:
         cfg = KaiwuConfig()
 
-    if not cfg.endpoint:
+    user_id = cfg.user_id or os.getenv("KAIWU_USER_ID", "")
+    sdk_code = cfg.sdk_code or os.getenv("KAIWU_SDK_CODE", "")
+
+    if not user_id or not sdk_code:
         raise KaiwuUnavailableError(
-            "Kaiwu endpoint is not configured. "
-            "Set 'kaiwu.endpoint' and 'kaiwu.token' in your config file."
+            "Kaiwu license credentials are missing. "
+            "Set 'kaiwu.user_id' and 'kaiwu.sdk_code' in config, "
+            "or environment variables KAIWU_USER_ID / KAIWU_SDK_CODE."
         )
 
-    # TODO: Implement actual Kaiwu API call.
-    # Example (pseudocode):
-    #   import kaiwu
-    #   sampler = kaiwu.QASampler(endpoint=cfg.endpoint, token=cfg.token)
-    #   qubo_dict = _matrix_to_qubo_dict(Q)
-    #   response = sampler.sample_qubo(
-    #       qubo_dict,
-    #       num_reads=cfg.num_reads,
-    #       annealing_time=cfg.annealing_time,
-    #   )
-    #   best_sample = response.first.sample
-    #   n = Q.shape[0]
-    #   x = np.array([best_sample[i] for i in range(n)], dtype=np.float64)
-    #   return x
+    if Q.ndim != 2 or Q.shape[0] != Q.shape[1]:
+        raise ValueError(f"Q must be a square 2D matrix, got shape={Q.shape}")
 
-    raise NotImplementedError("Kaiwu API call not yet implemented. See TODO above.")
+    try:
+        kaiwu_license.init(user_id=user_id, sdk_code=sdk_code)
+        qubo_model = qubo_matrix_to_qubo_model(Q)
+
+        if cfg.quiet:
+            logging.getLogger("kaiwu").setLevel(logging.WARNING)
+
+        sampler = SimulatedAnnealingSampler(
+            iterations_per_t=max(1, int(cfg.annealing_time)),
+            size_limit=max(1, int(cfg.num_reads)),
+            rand_seed=cfg.seed,
+        )
+        solver = SimpleSolver(sampler)
+        sample, _energy = solver.solve_qubo(qubo_model)
+        x = _sample_to_array(sample, Q.shape[0])
+        return x
+    except Exception as exc:
+        raise KaiwuUnavailableError(f"Kaiwu solve failed: {exc}") from exc
 
 
 def is_available() -> bool:
@@ -191,3 +210,37 @@ def _matrix_to_qubo_dict(Q: np.ndarray) -> dict[tuple[int, int], float]:
             if val != 0.0:
                 qubo[(i, j)] = val
     return qubo
+
+
+def _sample_to_array(sample: object, n: int) -> np.ndarray:
+    """Convert Kaiwu sample output to a dense binary numpy vector.
+
+    Supported forms:
+    - dict with keys like "b[0]", "x0", or integer-like strings
+    - sequence with length n
+    """
+    if isinstance(sample, dict):
+        x = np.zeros(n, dtype=np.float64)
+        for k, v in sample.items():
+            idx = _parse_var_index(str(k))
+            if idx is not None and 0 <= idx < n:
+                x[idx] = 1.0 if float(v) >= 0.5 else 0.0
+        return x
+
+    arr = np.asarray(sample, dtype=np.float64).reshape(-1)
+    if arr.size != n:
+        raise ValueError(f"Unexpected sample size: expected {n}, got {arr.size}")
+    return (arr >= 0.5).astype(np.float64)
+
+
+def _parse_var_index(name: str) -> int | None:
+    """Extract integer index from variable name (e.g. b[12], x12, 12)."""
+    if name.isdigit():
+        return int(name)
+    if "[" in name and "]" in name:
+        try:
+            return int(name[name.index("[") + 1 : name.index("]")])
+        except ValueError:
+            return None
+    digits = "".join(ch for ch in name if ch.isdigit())
+    return int(digits) if digits else None
