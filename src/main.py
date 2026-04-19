@@ -161,10 +161,10 @@ def run_data_phase(cfg: dict[str, Any]) -> tuple:
 
 def _result_paths(output_cfg: dict[str, Any], problem: str, source: str) -> tuple[Path, Path]:
     """Build source-specific output paths to avoid overwriting by different solvers."""
-    table_dir = Path(output_cfg["table_dir"])
+    result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
     fig_dir = Path(output_cfg["figure_dir"])
     return (
-        table_dir / f"{problem}_result_{source}.csv",
+        result_dir / f"{problem}_result_{source}.csv",
         fig_dir / f"{problem}_route_{source}.png",
     )
 
@@ -427,7 +427,8 @@ def run_q3(cfg: dict[str, Any], graph) -> None:
         metrics["total_penalty"],
     )
 
-    save_metrics_csv(metrics, Path(output_cfg["table_dir"]) / "q3_result.csv")
+    result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
+    save_metrics_csv(metrics, result_dir / "q3_result.csv")
     plot_single_route(
         route,
         graph,
@@ -513,7 +514,8 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
         q4_result.capacity_report.feasible if q4_result.capacity_report else "N/A",
     )
 
-    save_metrics_csv(metrics, Path(output_cfg["table_dir"]) / "q4_result.csv")
+    result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
+    save_metrics_csv(metrics, result_dir / "q4_result.csv")
     plot_multi_vehicle_routes(
         vehicle_routes,
         graph,
@@ -549,7 +551,8 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
             max_vehicles=max_k,
             step=step,
         )
-        sens_result.save_csv(Path(output_cfg["table_dir"]) / "q4_sensitivity.csv")
+        prescreen_dir = Path(output_cfg.get("prescreen_dir", "outputs/prescreen"))
+        sens_result.save_csv(prescreen_dir / "q4_sensitivity.csv")
         plot_sensitivity_curve(
             sens_result.to_dataframe(),
             save_path=Path(output_cfg["figure_dir"]) / "q4_sensitivity.png",
@@ -565,8 +568,8 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
     problem = str(cfg.get("problem", "q1")).lower()
     qubo_cfg = cfg.get("qubo", {})
     output_cfg = cfg.get("output", {})
-    table_dir = Path(output_cfg.get("table_dir", "outputs/tables"))
-    table_dir.mkdir(parents=True, exist_ok=True)
+    qubo_dir = Path(output_cfg.get("qubo_dir", "outputs/qubo_ising"))
+    qubo_dir.mkdir(parents=True, exist_ok=True)
 
     export_cfg = cfg.get("qubo_export", {})
     output_model = str(export_cfg.get("output_model", "qubo")).lower()
@@ -584,9 +587,9 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
         )
         out_name = "q1_ising.csv" if output_model == "ising" else "q1_qubo.csv"
         meta_name = "q1_ising_meta.json" if output_model == "ising" else "q1_qubo_meta.json"
-        out_path = table_dir / out_name
-        raw_path = table_dir / "q1_qubo_raw.csv"
-        meta_path = table_dir / meta_name
+        out_path = qubo_dir / out_name
+        raw_path = qubo_dir / "q1_qubo_raw.csv"
+        meta_path = qubo_dir / meta_name
     elif problem == "q2":
         from src.qubo.q2_qubo import build_q2_qubo
 
@@ -597,9 +600,9 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
         )
         out_name = "q2_ising.csv" if output_model == "ising" else "q2_qubo.csv"
         meta_name = "q2_ising_meta.json" if output_model == "ising" else "q2_qubo_meta.json"
-        out_path = table_dir / out_name
-        raw_path = table_dir / "q2_qubo_raw.csv"
-        meta_path = table_dir / meta_name
+        out_path = qubo_dir / out_name
+        raw_path = qubo_dir / "q2_qubo_raw.csv"
+        meta_path = qubo_dir / meta_name
     else:
         raise ValueError("QUBO export currently supports only q1/q2.")
 
@@ -1098,10 +1101,10 @@ def run_q1_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
         penalty_visit=qubo_cfg.get("penalty_visit", 500),
         penalty_position=qubo_cfg.get("penalty_position", 500),
     )
-    table_dir = Path(output_cfg["table_dir"])
-    meta_path = table_dir / "q1_ising_meta.json"
+    qubo_dir = Path(output_cfg.get("qubo_dir", "outputs/qubo_ising"))
+    meta_path = qubo_dir / "q1_ising_meta.json"
     if not meta_path.exists():
-        meta_path = table_dir / "q1_qubo_meta.json"
+        meta_path = qubo_dir / "q1_qubo_meta.json"
     log_vectors = _load_solution_vectors_from_log(solution_path, qr.n_vars, meta_path)
     if log_vectors:
         best_route: list[int] | None = None
@@ -1184,10 +1187,10 @@ def run_q2_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
         penalty_visit=qubo_cfg.get("penalty_visit", 500),
         penalty_position=qubo_cfg.get("penalty_position", 500),
     )
-    table_dir = Path(output_cfg["table_dir"])
-    meta_path = table_dir / "q2_ising_meta.json"
+    qubo_dir = Path(output_cfg.get("qubo_dir", "outputs/qubo_ising"))
+    meta_path = qubo_dir / "q2_ising_meta.json"
     if not meta_path.exists():
-        meta_path = table_dir / "q2_qubo_meta.json"
+        meta_path = qubo_dir / "q2_qubo_meta.json"
     log_vectors = _load_solution_vectors_from_log(solution_path, qr.n_vars, meta_path)
     if log_vectors:
         best_route: list[int] | None = None

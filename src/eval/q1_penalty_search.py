@@ -41,8 +41,8 @@ def run_search(
     graph, _ = run_data_phase(cfg)
 
     output_cfg = cfg["output"]
-    table_dir = Path(output_cfg["table_dir"])
-    table_dir.mkdir(parents=True, exist_ok=True)
+    prescreen_dir = Path(output_cfg.get("prescreen_dir", "outputs/prescreen"))
+    prescreen_dir.mkdir(parents=True, exist_ok=True)
 
     kaiwu_cfg_dict = cfg.get("kaiwu", {})
     kaiwu_cfg = KaiwuConfig(
@@ -94,7 +94,7 @@ def run_search(
 
     results.sort(key=lambda r: (r.best_travel, r.mean_travel, abs(r.ratio - 1.0)))
 
-    csv_path = table_dir / "q1_penalty_search.csv"
+    csv_path = prescreen_dir / "q1_penalty_search.csv"
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(
@@ -123,7 +123,7 @@ def run_search(
                 ]
             )
 
-    md_path = table_dir / "q1_penalty_candidates.md"
+    md_path = prescreen_dir / "q1_penalty_candidates.md"
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("# Q1 Penalty Candidates For CPQC-550\n\n")
         f.write("Top candidates screened by local Kaiwu (best_travel then mean_travel).\n\n")

@@ -49,5 +49,7 @@ qubo_export:
 output:
   log_dir: outputs/logs/
   figure_dir: outputs/figures/
-  table_dir: outputs/tables/
+  result_dir: outputs/results/
+  qubo_dir: outputs/qubo_ising/
+  prescreen_dir: outputs/prescreen/
   log_level: INFO

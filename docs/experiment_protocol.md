@@ -58,7 +58,7 @@ python -m src.main --config configs/q1.yaml
 ```
 
 输出：
-- `outputs/tables/q1_result.csv`：路径方案 + 目标值
+- `outputs/results/q1_result.csv`：路径方案 + 目标值
 - `outputs/figures/q1_route.png`：路径可视化
 - `outputs/logs/q1_run.log`：求解日志
 
@@ -75,7 +75,7 @@ python -m src.main --config configs/q2.yaml
 
 附加输出：
 - 每个客户的时间窗违反量与惩罚值
-- `outputs/tables/q2_result.csv`（包含每客户到达时刻、早到/晚到违反量、惩罚）
+- `outputs/results/q2_result.csv`（包含每客户到达时刻、早到/晚到违反量、惩罚）
 
 ---
 
@@ -87,7 +87,7 @@ python -m src.main --config configs/q3.yaml
 
 附加输出：
 - 聚类分组可视化 `outputs/figures/q3_clusters.png`
-- 全局路径结果 `outputs/tables/q3_result.csv`
+- 全局路径结果 `outputs/results/q3_result.csv`
 
 ---
 
@@ -103,7 +103,7 @@ python -m src.main --config configs/q4.yaml --sensitivity
 
 附加输出：
 - `outputs/figures/q4_sensitivity.png`：车辆数敏感性曲线
-- `outputs/tables/q4_sensitivity.csv`：详细数据
+- `outputs/prescreen/q4_sensitivity.csv`：详细数据
 
 ---
 
