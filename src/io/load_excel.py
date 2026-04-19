@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import re
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,19 @@ COLUMN_ALIASES: dict[str, str] = {
     "load": "demand",
     "qty": "demand",
     "需求量": "demand",
+}
+
+# Common column names for per-vehicle capacity in Sheet1 metadata.
+VEHICLE_CAPACITY_ALIASES: set[str] = {
+    "vehicle_capacity",
+    "capacity",
+    "veh_capacity",
+    "truck_capacity",
+    "单车容量",
+    "车辆容量",
+    "最大载重",
+    "载重",
+    "容量",
 }
 
 
@@ -154,6 +168,73 @@ def load_instance(
         logger.info("Cached processed data to %s", processed_dir)
 
     return nodes, travel_time
+
+
+def load_vehicle_capacity(excel_path: str | Path) -> float | None:
+    """Read per-vehicle capacity from Sheet1 metadata, if present.
+
+    The reference Excel places capacity in the node-information sheet as a
+    dedicated column where typically only the depot row is filled.
+
+    Parameters
+    ----------
+    excel_path : str | Path
+        Path to ``reference_case.xlsx``.
+
+    Returns
+    -------
+    float | None
+        Capacity value when found and parseable, otherwise ``None``.
+    """
+    excel_path = Path(excel_path)
+    if not excel_path.exists():
+        return None
+
+    try:
+        raw = pd.read_excel(excel_path, sheet_name=0, header=0)
+    except Exception as exc:  # pragma: no cover - depends on external file
+        logger.warning("Failed to read Sheet1 for vehicle capacity: %s", exc)
+        return None
+
+    # Normalise names and strip symbols so Chinese/English variants are easier
+    # to match (e.g. "车辆容量", "vehicle capacity").
+    norm_map: dict[str, str] = {}
+    for c in raw.columns:
+        k = str(c).strip().lower().replace(" ", "_")
+        k = re.sub(r"[^\w\u4e00-\u9fff]", "", k)
+        norm_map[k] = str(c)
+
+    matched_col: str | None = None
+    for alias in VEHICLE_CAPACITY_ALIASES:
+        a = re.sub(r"[^\w\u4e00-\u9fff]", "", alias.strip().lower().replace(" ", "_"))
+        if a in norm_map:
+            matched_col = norm_map[a]
+            break
+
+    if matched_col is not None:
+        series = pd.to_numeric(raw[matched_col], errors="coerce").dropna()
+        if not series.empty:
+            cap = float(series.iloc[0])
+            if cap > 0:
+                return cap
+
+    # Fallback for encoding-damaged headers: choose a sparse numeric column
+    # whose first row (depot row) has a positive value.
+    numeric = raw.apply(pd.to_numeric, errors="coerce")
+    sparse_candidates: list[tuple[str, int, float]] = []
+    for col in numeric.columns:
+        s = numeric[col]
+        non_na = int(s.notna().sum())
+        first_val = s.iloc[0] if len(s) > 0 else np.nan
+        if non_na >= 1 and non_na <= 2 and pd.notna(first_val) and float(first_val) > 0:
+            sparse_candidates.append((str(col), non_na, float(first_val)))
+
+    if sparse_candidates:
+        # Prefer the sparsest column; tie-break by later column position.
+        best_name = min(sparse_candidates, key=lambda x: (x[1], -list(numeric.columns).index(x[0])))
+        return float(best_name[2])
+
+    return None
 
 
 # ---------------------------------------------------------------------------

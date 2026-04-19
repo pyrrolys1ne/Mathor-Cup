@@ -91,6 +91,9 @@ def run_vehicle_sensitivity(
     min_vehicles: int = 2,
     max_vehicles: int = 10,
     step: int = 1,
+    weight_vehicles: float = 1.0,
+    weight_travel: float = 1.0,
+    weight_penalty: float = 1.0,
 ) -> SensitivityResult:
     """Run sensitivity analysis by sweeping the number of vehicles.
 
@@ -107,6 +110,9 @@ def run_vehicle_sensitivity(
     vehicle_capacity : float
     alpha, beta : float
     min_vehicles, max_vehicles, step : int
+    weight_vehicles, weight_travel, weight_penalty : float
+        Weights of weighted objective
+        ``weight_vehicles * n_vehicles + weight_travel * travel + weight_penalty * penalty``.
 
     Returns
     -------
@@ -128,18 +134,28 @@ def run_vehicle_sensitivity(
             timings = batch_route_penalties(routes, graph, alpha, beta)
             travel = sum(t.total_travel_time for t in timings)
             penalty = sum(t.total_penalty for t in timings)
+            n_used = len(routes)
             cap_report = check_capacity(routes, graph, vehicle_capacity)
+            weighted_obj = (
+                weight_vehicles * n_used
+                + weight_travel * travel
+                + weight_penalty * penalty
+            )
             points.append(
                 SensitivityPoint(
-                    n_vehicles=k,
+                    n_vehicles=n_used,
                     total_travel_time=travel,
                     total_penalty=penalty,
-                    objective=travel + penalty,
+                    objective=weighted_obj,
                     capacity_feasible=cap_report.feasible,
                 )
             )
             logger.info(
-                "K=%d: obj=%.2f, feasible=%s", k, travel + penalty, cap_report.feasible
+                "K=%d: used=%d, weighted_obj=%.2f, feasible=%s",
+                k,
+                n_used,
+                weighted_obj,
+                cap_report.feasible,
             )
         except Exception as exc:
             logger.warning("Sensitivity K=%d failed: %s", k, exc)

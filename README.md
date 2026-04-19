@@ -86,7 +86,8 @@ python -m src.main --config configs/q4.yaml --phase export   # outputs/qubo_isin
 # 6.2) 回填上机结果并生成评估与图（支持 txt/csv 位向量、平台 JSON 日志）
 python -m src.main --config configs/q1.yaml --solution data/platform_feedback/q1_run_01.log
 python -m src.main --config configs/q2.yaml --solution data/platform_feedback/q2_run_01.log
-python -m src.main --config configs/q3.yaml --solution data/platform_feedback      # 自动读取 q3_run_01~05
+python -m src.main --config configs/q3.yaml --solution data/platform_feedback      # Q3 单目录候选池：子问题1用1&6，2用2&7...
+python -m src.main --config configs/q4.yaml --solution data/platform_feedback      # 读取 q4_run_*.log 并按 q4 manifest 回填
 
 # 也支持本地位向量文件
 python -m src.main --config configs/q1.yaml --solution outputs/qubo_ising/q1_solution.txt
@@ -118,10 +119,15 @@ python -m src.main --config configs/q1.yaml
 	- 结果表（csv）归档到 `outputs/results/`
 	- QUBO/Ising 矩阵与 meta 归档到 `outputs/qubo_ising/`
 	- 粗筛相关文件归档到 `outputs/prescreen/`
-6. 上机流程：先 `--phase export` 导出 QUBO，再将平台返回解通过 `--solution` 回填解码评估（当前回填支持 Q1/Q2/Q3）。
+6. 上机流程：先 `--phase export` 导出 QUBO，再将平台返回解通过 `--solution` 回填解码评估（当前回填支持 Q1/Q2/Q3/Q4）。
 	- 建议将平台返回文件统一放在 `data/platform_feedback/` 目录。
 	- 平台 `.log` 若为 JSON 列表（含 `quboValue` 和 `solutionVector`），程序可直接解析并自动选择候选解。
+	- Q3 统一使用 `data/platform_feedback/` 单目录，不再区分 `q3_run_01/`、`q3_run_02/` 子目录。
+	- 候选池按编号自动配对：子问题1使用 `q3_run_01` 和 `q3_run_06`，子问题2使用 `q3_run_02` 和 `q3_run_07`，以此类推。
+	- 推荐命名：`q3_run_01.log` ... `q3_run_10.log`（也支持 json/txt/csv）。
+	- Q4 回填建议将分车子问题反馈命名为 `q4_run_01.log`、`q4_run_02.log`...，并放在 `data/platform_feedback/` 目录。
 7. 结果汇总：`q1_result_*.csv` / `q2_result_*.csv` / `q3_result_*.csv` 文件末尾会追加汇总块（Route、Travel time、TW penalty、Objective、Customers served）。
+	- Q4 输出采用来源后缀命名：本地求解为 `q4_result_hybrid.csv` 或 `q4_result_kaiwu.csv`，回填为 `q4_result_cpqc550.csv`。
 8. 8bit 适配：导出时会根据 `qubo_export.precision_method` 自动做精度适配，默认 `truncate`。
 9. 导出产物：
 	- `*_qubo_raw.csv`：原始QUBO矩阵

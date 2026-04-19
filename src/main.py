@@ -73,6 +73,22 @@ def _as_int(value: Any, default: int) -> int:
         return int(default)
 
 
+def _resolve_vehicle_capacity(cfg: dict[str, Any], fallback: float = 100.0) -> tuple[float, str]:
+    """Resolve vehicle capacity with Excel-first policy and config fallback."""
+    from src.io.load_excel import load_vehicle_capacity
+
+    data_cfg = cfg.get("data", {})
+    vehicle_cfg = cfg.get("vehicle", {})
+
+    default_cap = _as_float(vehicle_cfg.get("capacity"), fallback)
+    excel_path = data_cfg.get("raw_excel")
+    if excel_path:
+        cap_from_excel = load_vehicle_capacity(excel_path)
+        if cap_from_excel is not None:
+            return float(cap_from_excel), f"excel:{excel_path}"
+    return float(default_cap), "config:vehicle.capacity"
+
+
 # ---------------------------------------------------------------------------
 # Config loader
 # ---------------------------------------------------------------------------
@@ -485,33 +501,34 @@ def run_q3(cfg: dict[str, Any], graph) -> None:
     )
 
     result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
-    result_csv = result_dir / "q3_result.csv"
+    result_csv = result_dir / "q3_result_kaiwu.csv"
     save_metrics_csv(metrics, result_csv)
     _append_single_result_summary_csv(result_csv, metrics)
     plot_single_route(
         route,
         graph,
         title=f"Q3 Route (obj={metrics['objective']:.2f})",
-        save_path=Path(output_cfg["figure_dir"]) / "q3_route.png",
+        save_path=Path(output_cfg["figure_dir"]) / "q3_route_kaiwu.png",
     )
     plot_clusters(
         graph,
         result.cluster_labels,
         graph.customer_ids,
         title="Q3 Customer Clusters",
-        save_path=Path(output_cfg["figure_dir"]) / "q3_clusters.png",
+        save_path=Path(output_cfg["figure_dir"]) / "q3_clusters_kaiwu.png",
     )
     _print_single_result(metrics, "Q3")
 
 
 def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
     """Run Problem 4 multi-vehicle solver and optional sensitivity analysis."""
-    from src.algorithms.vehicle_assignment import assign_customers_to_vehicles
+    from src.algorithms.vehicle_assignment import assign_customers_to_vehicles, lexicographic_vehicle_min
     from src.algorithms.clustering import cluster_customers
     from src.algorithms.local_search import two_opt
-    from src.eval.metrics import multi_vehicle_metrics, save_metrics_csv
+    from src.algorithms.route_decode import decode_sub_route
+    from src.eval.metrics import multi_vehicle_metrics, save_metrics_csv, single_route_metrics
     from src.eval.sensitivity import run_vehicle_sensitivity
-    from src.qubo.q4_qubo import evaluate_q4_solution
+    from src.qubo.q4_qubo import build_vehicle_qubo, evaluate_q4_solution
     from src.solvers.sa_solver import SAConfig, solve_route_sa
     from src.viz.plot_routes import plot_multi_vehicle_routes
     from src.viz.plot_tradeoff import plot_sensitivity_curve, plot_stacked_cost
@@ -519,11 +536,37 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
     output_cfg = cfg["output"]
     vehicle_cfg = cfg.get("vehicle", {})
     hybrid_cfg_dict = cfg.get("hybrid", {})
+    solver_cfg = cfg.get("solver", {})
     sa_cfg_dict = cfg.get("sa", {})
+    kaiwu_cfg = cfg.get("kaiwu", {})
+    qubo_cfg = cfg.get("qubo", {})
     tw_cfg = cfg.get("time_window", {})
+    obj_cfg = cfg.get("objective", {})
     alpha = tw_cfg.get("alpha", 10.0)
     beta = tw_cfg.get("beta", 20.0)
-    vehicle_capacity = vehicle_cfg.get("capacity", 100.0)
+    vehicle_capacity, cap_source = _resolve_vehicle_capacity(cfg, fallback=100.0)
+    optimization_mode = str(vehicle_cfg.get("optimization_mode", "weighted")).lower()
+    weight_vehicle = _as_float(obj_cfg.get("alpha", 1.0), 1.0)
+    weight_travel = _as_float(obj_cfg.get("beta", 1.0), 1.0)
+    weight_penalty = _as_float(obj_cfg.get("gamma", 1.0), 1.0)
+    backend = str(solver_cfg.get("backend", "hybrid")).lower()
+    local_iter = _as_int(hybrid_cfg_dict.get("local_search_iter"), 500)
+
+    if optimization_mode not in {"lexicographic", "weighted"}:
+        logger.warning(
+            "Unknown optimization_mode=%s for Q4, fallback to weighted.",
+            optimization_mode,
+        )
+        optimization_mode = "weighted"
+
+    logger.info("Q4 vehicle capacity=%.4f (source=%s)", float(vehicle_capacity), cap_source)
+    logger.info(
+        "Q4 optimization mode=%s, objective weights(alpha,beta,gamma)=(%.4f, %.4f, %.4f)",
+        optimization_mode,
+        weight_vehicle,
+        weight_travel,
+        weight_penalty,
+    )
 
     sa_cfg = SAConfig(
         initial_temp=_as_float(sa_cfg_dict.get("initial_temp"), 5000.0),
@@ -533,24 +576,52 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
         seed=_as_int(sa_cfg_dict.get("seed"), 42),
     )
 
-    # Cluster and assign vehicles
-    n_clusters = hybrid_cfg_dict.get("n_clusters", 5)
-    labels, _ = cluster_customers(
-        graph,
-        graph.customer_ids,
-        method=hybrid_cfg_dict.get("cluster_method", "kmeans"),
-        n_clusters=n_clusters,
-        seed=hybrid_cfg_dict.get("seed", 42),
-    )
-
-    customer_groups = assign_customers_to_vehicles(
-        graph.customer_ids, graph, vehicle_capacity, cluster_labels=labels
-    )
-
     # Solve each vehicle sub-route
     from src.core.time_window import simulate_route_timing
 
     def _solve_group(cids: list[int]) -> list[int]:
+        if backend == "kaiwu":
+            try:
+                from src.solvers.kaiwu_solver import KaiwuConfig, solve_qubo_kaiwu
+
+                qr, sub = build_vehicle_qubo(
+                    graph,
+                    cids,
+                    penalty_visit=qubo_cfg.get("penalty_visit", 500),
+                    penalty_position=qubo_cfg.get("penalty_position", 500),
+                )
+                kw = KaiwuConfig(
+                    **{k: v for k, v in kaiwu_cfg.items() if k in KaiwuConfig.__dataclass_fields__}
+                )
+                n_restarts = max(1, _as_int(kaiwu_cfg.get("n_restarts"), 4))
+                base_seed = kw.seed if kw.seed is not None else _as_int(solver_cfg.get("seed"), 42)
+
+                best_route: list[int] | None = None
+                best_obj = float("inf")
+
+                for i in range(n_restarts):
+                    kw_try = KaiwuConfig(**kw.__dict__)
+                    kw_try.seed = int(base_seed) + i
+                    x = solve_qubo_kaiwu(qr.Q, kw_try)
+                    customers = decode_sub_route(x, sub, qr)
+                    if len(customers) >= 3:
+                        customers = two_opt(customers, graph, n_iter=max(60, local_iter // 6))
+                    cand_route = [graph.depot_id] + customers + [graph.depot_id]
+                    m = single_route_metrics(cand_route, graph, alpha=alpha, beta=beta)
+                    if float(m["objective"]) < best_obj:
+                        best_obj = float(m["objective"])
+                        best_route = cand_route
+
+                if best_route is None:
+                    raise RuntimeError("No valid Kaiwu candidate decoded for Q4 subproblem.")
+                return best_route
+            except Exception as exc:
+                logger.warning(
+                    "Q4 group Kaiwu failed for %d customers (%s); fallback to SA.",
+                    len(cids),
+                    exc,
+                )
+
         def cost_fn(perm: list[int]) -> float:
             timing = simulate_route_timing(perm, graph, alpha, beta)
             return timing.total_travel_time + timing.total_penalty
@@ -559,14 +630,119 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
         improved = two_opt(result.best_solution, graph)
         return [graph.depot_id] + improved + [graph.depot_id]
 
-    vehicle_routes = [_solve_group(group) for group in customer_groups]
+    sens_cfg = cfg.get("sensitivity", {})
+    configured_k = _as_int(hybrid_cfg_dict.get("n_clusters"), 5)
+    min_k = max(1, lexicographic_vehicle_min(graph.customer_ids, graph, vehicle_capacity))
 
-    q4_result = evaluate_q4_solution(vehicle_routes, graph, vehicle_capacity, alpha, beta)
-    metrics = multi_vehicle_metrics(vehicle_routes, graph, vehicle_capacity, alpha, beta)
+    # Lexicographic default run should be fast: only search from lower bound to
+    # configured K. Full K sweep belongs to explicit sensitivity analysis.
+    if sensitivity:
+        max_k_cfg = _as_int(sens_cfg.get("max_vehicles"), max(min_k, configured_k))
+        max_k = max(min_k, configured_k, max_k_cfg)
+    else:
+        max_k = max(min_k, configured_k)
+
+    best_vehicle_routes: list[list[int]] | None = None
+    best_metrics: dict[str, object] | None = None
+    best_q4 = None
+    best_key: tuple[int, float] | None = None
+    best_score: float | None = None
+
+    k_values = list(range(min_k, max_k + 1))
+    logger.info(
+        "Q4 search range: K=%d..%d (count=%d, sensitivity=%s, mode=%s)",
+        min_k,
+        max_k,
+        len(k_values),
+        sensitivity,
+        optimization_mode,
+    )
+
+    for idx, k in enumerate(k_values, start=1):
+        k_t0 = time.perf_counter()
+        logger.info("Q4 progress: [%d/%d] start K=%d", idx, len(k_values), k)
+
+        labels, _ = cluster_customers(
+            graph,
+            graph.customer_ids,
+            method=hybrid_cfg_dict.get("cluster_method", "kmeans"),
+            n_clusters=k,
+            seed=hybrid_cfg_dict.get("seed", 42),
+        )
+        customer_groups = assign_customers_to_vehicles(
+            graph.customer_ids,
+            graph,
+            vehicle_capacity,
+            cluster_labels=labels,
+            seed=_as_int(hybrid_cfg_dict.get("seed"), 42),
+        )
+        used_vehicles = len(customer_groups)
+
+        if optimization_mode == "lexicographic" and best_key is not None and used_vehicles > best_key[0]:
+            logger.info(
+                "Q4 progress: [%d/%d] skip K=%d (groups=%d worse than best vehicles=%d, elapsed=%.2fs)",
+                idx,
+                len(k_values),
+                k,
+                used_vehicles,
+                best_key[0],
+                time.perf_counter() - k_t0,
+            )
+            continue
+
+        vehicle_routes = [_solve_group(group) for group in customer_groups]
+        q4_result = evaluate_q4_solution(vehicle_routes, graph, vehicle_capacity, alpha, beta)
+        metrics = multi_vehicle_metrics(vehicle_routes, graph, vehicle_capacity, alpha, beta)
+        n_vehicles = int(metrics["n_vehicles"])
+        total_travel = float(metrics["total_travel_time"])
+        total_penalty = float(metrics["total_penalty"])
+        score = (
+            weight_vehicle * n_vehicles
+            + weight_travel * total_travel
+            + weight_penalty * total_penalty
+        )
+        key = (n_vehicles, float(metrics["objective"]))
+
+        logger.info(
+            "Q4 progress: [%d/%d] done K=%d -> used=%d, travel=%.4f, penalty=%.4f, score=%.4f, obj=%.4f, elapsed=%.2fs",
+            idx,
+            len(k_values),
+            k,
+            n_vehicles,
+            total_travel,
+            total_penalty,
+            score,
+            key[1],
+            time.perf_counter() - k_t0,
+        )
+
+        if optimization_mode == "lexicographic":
+            if best_key is None or key < best_key:
+                best_key = key
+                best_score = score
+                best_vehicle_routes = vehicle_routes
+                best_metrics = metrics
+                best_q4 = q4_result
+        else:
+            if best_score is None or score < best_score:
+                best_score = score
+                best_key = key
+                best_vehicle_routes = vehicle_routes
+                best_metrics = metrics
+                best_q4 = q4_result
+
+    if best_vehicle_routes is None or best_metrics is None or best_q4 is None:
+        raise RuntimeError("Q4 search failed to produce a valid solution.")
+
+    vehicle_routes = best_vehicle_routes
+    metrics = best_metrics
+    q4_result = best_q4
 
     logger.info(
-        "Q4 result: K=%d, obj=%.4f (travel=%.4f, penalty=%.4f), capacity_ok=%s",
+        "Q4 best(%s): K=%d, score=%.4f, obj=%.4f (travel=%.4f, penalty=%.4f), capacity_ok=%s",
+        optimization_mode,
         metrics["n_vehicles"],
+        float(best_score) if best_score is not None else float("nan"),
         metrics["objective"],
         metrics["total_travel_time"],
         metrics["total_penalty"],
@@ -574,16 +750,17 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
     )
 
     result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
-    save_metrics_csv(metrics, result_dir / "q4_result.csv")
+    source = "kaiwu" if backend == "kaiwu" else "hybrid"
+    save_metrics_csv(metrics, result_dir / f"q4_result_{source}.csv")
     plot_multi_vehicle_routes(
         vehicle_routes,
         graph,
         title=f"Q4 Routes (K={metrics['n_vehicles']}, obj={metrics['objective']:.2f})",
-        save_path=Path(output_cfg["figure_dir"]) / "q4_routes.png",
+        save_path=Path(output_cfg["figure_dir"]) / f"q4_routes_{source}.png",
     )
     plot_stacked_cost(
         metrics["vehicles"],
-        save_path=Path(output_cfg["figure_dir"]) / "q4_cost_breakdown.png",
+        save_path=Path(output_cfg["figure_dir"]) / f"q4_cost_breakdown_{source}.png",
     )
 
     _print_multi_result(metrics, "Q4")
@@ -609,6 +786,9 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
             min_vehicles=min_k,
             max_vehicles=max_k,
             step=step,
+            weight_vehicles=weight_vehicle,
+            weight_travel=weight_travel,
+            weight_penalty=weight_penalty,
         )
         prescreen_dir = Path(output_cfg.get("prescreen_dir", "outputs/prescreen"))
         sens_result.save_csv(prescreen_dir / "q4_sensitivity.csv")
@@ -809,6 +989,14 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
             cluster_labels=labels,
             seed=_as_int(hybrid_cfg.get("seed"), 42),
         )
+
+        max_parts = _as_int(export_cfg.get("max_parts"), 0)
+        if max_parts > 0 and len(groups) > max_parts:
+            raise RuntimeError(
+                "Q4 export aborted: decomposed subproblems exceed budget "
+                f"({len(groups)} > max_parts={max_parts}). "
+                "Reduce hybrid.n_clusters or increase vehicle.capacity, then retry."
+            )
 
         entries: list[dict[str, Any]] = []
         suffix = "ising" if output_model == "ising" else "qubo"
@@ -1501,9 +1689,42 @@ def _collect_q3_solution_files(solution_path: str | Path, n_parts: int) -> list[
             f"Insufficient Q3 feedback files: need {n_parts}, found {len(candidates)}. "
             f"Place q3_run_*.log under {p if p.is_dir() else p.parent}."
         )
+    return candidates
+
+
+def _collect_q4_solution_files(solution_path: str | Path, n_parts: int) -> list[Path]:
+    """Collect Q4 feedback files for decomposed vehicle sub-problems."""
+    p = Path(solution_path)
+
+    def _glob_runs(folder: Path) -> list[Path]:
+        files: list[Path] = []
+        for pat in ("q4_run_*.log", "q4_run_*.json", "q4_run_*.txt", "q4_run_*.csv"):
+            files.extend(sorted(folder.glob(pat)))
+        uniq: list[Path] = []
+        seen: set[Path] = set()
+        for fp in sorted(files):
+            if fp not in seen:
+                uniq.append(fp)
+                seen.add(fp)
+        return uniq
+
+    if p.is_dir():
+        candidates = _glob_runs(p)
+    else:
+        if n_parts <= 1:
+            return [p]
+        candidates = _glob_runs(p.parent)
+        if p not in candidates:
+            candidates = [p] + candidates
+
+    if len(candidates) < n_parts:
+        raise RuntimeError(
+            f"Insufficient Q4 feedback files: need {n_parts}, found {len(candidates)}. "
+            f"Place q4_run_*.log under {p if p.is_dir() else p.parent}."
+        )
     if len(candidates) > n_parts:
         logger.warning(
-            "Q3 feedback files exceed required parts (%d > %d); using first %d files.",
+            "Q4 feedback files exceed required parts (%d > %d); using first %d files.",
             len(candidates),
             n_parts,
             n_parts,
@@ -1542,8 +1763,52 @@ def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
     if not isinstance(entries, list) or not entries:
         raise RuntimeError(f"Q3 manifest has no entries: {manifest_path}")
 
-    solution_files = _collect_q3_solution_files(solution_path, len(entries))
-    logger.info("Q3 external-solution: using %d feedback files.", len(solution_files))
+    solution_source = Path(solution_path)
+    solution_files = _collect_q3_solution_files(solution_source, len(entries))
+    solution_file_groups: list[list[Path]] = []
+
+    if solution_source.is_dir():
+        indexed: dict[int, list[Path]] = {}
+        unindexed: list[Path] = []
+
+        for fp in solution_files:
+            stem = fp.stem.replace("-", "_")
+            parts = [x for x in stem.split("_") if x]
+            idx = int(parts[-1]) if parts and parts[-1].isdigit() else None
+            if idx is None:
+                unindexed.append(fp)
+            else:
+                indexed.setdefault(idx, []).append(fp)
+
+        for i in range(1, len(entries) + 1):
+            pool: list[Path] = []
+            pool.extend(indexed.get(i, []))
+            pool.extend(indexed.get(i + len(entries), []))
+            if not pool:
+                # Fallback to positional order if file names do not contain indices.
+                if i - 1 < len(solution_files):
+                    pool = [solution_files[i - 1]]
+                elif i - 1 < len(unindexed):
+                    pool = [unindexed[i - 1]]
+                else:
+                    raise RuntimeError(
+                        f"Q3 cannot build candidate pool for subproblem {i}. "
+                        f"Expect files like q3_run_{i:02d} and q3_run_{i + len(entries):02d}."
+                    )
+            solution_file_groups.append(pool)
+
+        logger.info(
+            "Q3 external-solution: single-folder pairing enabled; subproblem i uses files i and i+%d when available.",
+            len(entries),
+        )
+    else:
+        if len(entries) > 1:
+            logger.warning(
+                "Q3 got a single feedback file while manifest has %d subproblems; the same file will be reused for all.",
+                len(entries),
+            )
+        solution_file_groups = [[solution_files[0]] for _ in entries]
+        logger.info("Q3 external-solution: using one feedback file for all subproblems.")
 
     def _obj(customer_perm: list[int]) -> float:
         route = [graph.depot_id] + list(customer_perm) + [graph.depot_id]
@@ -1553,7 +1818,7 @@ def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
     cluster_routes: list[list[int]] = []
     label_map: dict[int, int] = {}
 
-    for i, (entry, sol_file) in enumerate(zip(entries, solution_files), start=1):
+    for i, (entry, sol_files) in enumerate(zip(entries, solution_file_groups), start=1):
         meta_path = Path(str(entry.get("meta", "")))
         if not meta_path.is_absolute():
             meta_path = (Path.cwd() / meta_path).resolve()
@@ -1576,31 +1841,34 @@ def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
             penalty_position=qubo_cfg.get("penalty_position", 500),
         )
 
-        vectors = _load_solution_vectors_from_log(sol_file, qr.n_vars, meta_path)
-        if vectors is None:
-            vectors = [_load_solution_vector(sol_file, qr.n_vars, meta_path)]
-
         best_sub: list[int] | None = None
         best_cost = float("inf")
-        for vec in vectors:
-            cand = decode_sub_route(vec, sub, qr)
-            if len(cand) >= 3:
-                improved = two_opt(cand, graph, n_iter=max(100, local_iter // 5))
-                if _obj(improved) < _obj(cand):
-                    cand = improved
-            c = _obj(cand)
-            if c < best_cost:
-                best_cost = c
-                best_sub = cand
+        best_src: Path | None = None
+        for sol_file in sol_files:
+            vectors = _load_solution_vectors_from_log(sol_file, qr.n_vars, meta_path)
+            if vectors is None:
+                vectors = [_load_solution_vector(sol_file, qr.n_vars, meta_path)]
+
+            for vec in vectors:
+                cand = decode_sub_route(vec, sub, qr)
+                if len(cand) >= 3:
+                    improved = two_opt(cand, graph, n_iter=max(100, local_iter // 5))
+                    if _obj(improved) < _obj(cand):
+                        cand = improved
+                c = _obj(cand)
+                if c < best_cost:
+                    best_cost = c
+                    best_sub = cand
+                    best_src = sol_file
 
         if best_sub is None:
-            raise RuntimeError(f"No decodable candidate found for subproblem {i} from {sol_file}")
+            raise RuntimeError(f"No decodable candidate found for subproblem {i} from {sol_files}")
         cluster_routes.append(best_sub)
         logger.info(
-            "Q3 subproblem %d/%d decoded from %s, best_sub_obj=%.4f",
+            "Q3 subproblem %d/%d best source=%s, best_sub_obj=%.4f",
             i,
             len(entries),
-            sol_file,
+            best_src,
             best_cost,
         )
 
@@ -1646,6 +1914,113 @@ def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
         save_path=Path(output_cfg["figure_dir"]) / "q3_clusters_cpqc550.png",
     )
     _print_single_result(metrics, "Q3")
+
+
+def run_q4_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None:
+    """Decode external Q4 decomposed solutions and evaluate multi-vehicle metrics."""
+    from src.algorithms.local_search import two_opt
+    from src.algorithms.route_decode import decode_sub_route
+    from src.eval.metrics import multi_vehicle_metrics, save_metrics_csv, single_route_metrics
+    from src.qubo.q4_qubo import build_vehicle_qubo
+    from src.viz.plot_routes import plot_multi_vehicle_routes
+    from src.viz.plot_tradeoff import plot_stacked_cost
+
+    output_cfg = cfg["output"]
+    qubo_cfg = cfg.get("qubo", {})
+    tw_cfg = cfg.get("time_window", {})
+    hybrid_cfg = cfg.get("hybrid", {})
+    vehicle_cfg = cfg.get("vehicle", {})
+    alpha = tw_cfg.get("alpha", 10.0)
+    beta = tw_cfg.get("beta", 20.0)
+    vehicle_capacity, cap_source = _resolve_vehicle_capacity(cfg, fallback=100.0)
+    local_iter = _as_int(hybrid_cfg.get("local_search_iter"), 500)
+
+    logger.info("Q4 vehicle capacity=%.4f (source=%s)", float(vehicle_capacity), cap_source)
+
+    qubo_dir = Path(output_cfg.get("qubo_dir", "outputs/qubo_ising"))
+    manifest_path = qubo_dir / "q4_export_manifest.json"
+    if not manifest_path.exists():
+        raise RuntimeError(
+            f"Q4 manifest not found: {manifest_path}. Run --phase export for q4 first."
+        )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entries = manifest.get("entries", [])
+    if not isinstance(entries, list) or not entries:
+        raise RuntimeError(f"Q4 manifest has no entries: {manifest_path}")
+
+    solution_files = _collect_q4_solution_files(solution_path, len(entries))
+    logger.info("Q4 external-solution: using %d feedback files.", len(solution_files))
+
+    vehicle_routes: list[list[int]] = []
+    for i, (entry, sol_file) in enumerate(zip(entries, solution_files), start=1):
+        meta_path = Path(str(entry.get("meta", "")))
+        if not meta_path.is_absolute():
+            meta_path = (Path.cwd() / meta_path).resolve()
+        if not meta_path.exists():
+            raise RuntimeError(f"Q4 subproblem meta not found: {meta_path}")
+
+        sub_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        customer_ids = [int(x) for x in sub_meta.get("customer_ids", [])]
+        if not customer_ids:
+            raise RuntimeError(f"Missing customer_ids in meta: {meta_path}")
+
+        qr, sub = build_vehicle_qubo(
+            graph,
+            customer_ids,
+            penalty_visit=qubo_cfg.get("penalty_visit", 500),
+            penalty_position=qubo_cfg.get("penalty_position", 500),
+        )
+
+        vectors = _load_solution_vectors_from_log(sol_file, qr.n_vars, meta_path)
+        if vectors is None:
+            vectors = [_load_solution_vector(sol_file, qr.n_vars, meta_path)]
+
+        best_route: list[int] | None = None
+        best_obj = float("inf")
+        for vec in vectors:
+            customers = decode_sub_route(vec, sub, qr)
+            if len(customers) >= 3:
+                customers = two_opt(customers, graph, n_iter=max(60, local_iter // 6))
+            cand_route = [graph.depot_id] + customers + [graph.depot_id]
+            m = single_route_metrics(cand_route, graph, alpha=alpha, beta=beta)
+            if float(m["objective"]) < best_obj:
+                best_obj = float(m["objective"])
+                best_route = cand_route
+
+        if best_route is None:
+            raise RuntimeError(f"No decodable candidate found for Q4 subproblem {i} from {sol_file}")
+        vehicle_routes.append(best_route)
+        logger.info(
+            "Q4 subproblem %d/%d decoded from %s, best_obj=%.4f",
+            i,
+            len(entries),
+            sol_file,
+            best_obj,
+        )
+
+    metrics = multi_vehicle_metrics(vehicle_routes, graph, vehicle_capacity, alpha, beta)
+    logger.info(
+        "Q4 external-solution result: K=%d, obj=%.4f (travel=%.4f, penalty=%.4f)",
+        metrics["n_vehicles"],
+        metrics["objective"],
+        metrics["total_travel_time"],
+        metrics["total_penalty"],
+    )
+
+    result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
+    save_metrics_csv(metrics, result_dir / "q4_result_cpqc550.csv")
+    plot_multi_vehicle_routes(
+        vehicle_routes,
+        graph,
+        title=f"Q4 Routes (cpqc550, K={metrics['n_vehicles']}, obj={metrics['objective']:.2f})",
+        save_path=Path(output_cfg["figure_dir"]) / "q4_routes_cpqc550.png",
+    )
+    plot_stacked_cost(
+        metrics["vehicles"],
+        save_path=Path(output_cfg["figure_dir"]) / "q4_cost_breakdown_cpqc550.png",
+    )
+    _print_multi_result(metrics, "Q4")
 
 
 # ---------------------------------------------------------------------------
@@ -1711,7 +2086,7 @@ def _print_multi_result(metrics: dict, label: str) -> None:
     "--solution",
     type=click.Path(exists=True),
     default=None,
-    help="Path to external solution file (q1/q2 vector; q3 supports decomposed feedback logs).",
+    help="Path to external solution file (q1/q2 vector; q3/q4 support decomposed feedback logs).",
 )
 def cli(config: str, phase: str, sensitivity: bool, solution: str | None) -> None:
     """MathorCup 2026 — Quantum Logistics Optimisation CLI.
@@ -1752,8 +2127,10 @@ def cli(config: str, phase: str, sensitivity: bool, solution: str | None) -> Non
             run_q2_from_solution(cfg, graph, solution)
         elif problem.lower() == "q3":
             run_q3_from_solution(cfg, graph, solution)
+        elif problem.lower() == "q4":
+            run_q4_from_solution(cfg, graph, solution)
         else:
-            click.echo("--solution is currently supported only for q1/q2/q3.", err=True)
+            click.echo("--solution is currently supported only for q1/q2/q3/q4.", err=True)
             sys.exit(1)
         logger.info("Problem %s complete (external solution).", problem.upper())
         return
