@@ -77,13 +77,16 @@ python -m src.main --config configs/q2.yaml   # 问题2
 python -m src.main --config configs/q3.yaml   # 问题3
 python -m src.main --config configs/q4.yaml   # 问题4
 
-# 6.1) Q1/Q2 导出 QUBO（用于上机平台）
+# 6.1) Q1/Q2/Q3/Q4 导出 QUBO（用于上机平台）
 python -m src.main --config configs/q1.yaml --phase export   # outputs/qubo_ising/q1_qubo.csv 或 q1_ising.csv（取决于output_model）
 python -m src.main --config configs/q2.yaml --phase export   # outputs/qubo_ising/q2_qubo.csv
+python -m src.main --config configs/q3.yaml --phase export   # outputs/qubo_ising/q3_export_manifest.json（分簇子问题矩阵）
+python -m src.main --config configs/q4.yaml --phase export   # outputs/qubo_ising/q4_export_manifest.json（分车子问题矩阵）
 
 # 6.2) 回填上机结果并生成评估与图（支持 txt/csv 位向量、平台 JSON 日志）
 python -m src.main --config configs/q1.yaml --solution data/platform_feedback/q1_run_01.log
 python -m src.main --config configs/q2.yaml --solution data/platform_feedback/q2_run_01.log
+python -m src.main --config configs/q3.yaml --solution data/platform_feedback      # 自动读取 q3_run_01~05
 
 # 也支持本地位向量文件
 python -m src.main --config configs/q1.yaml --solution outputs/qubo_ising/q1_solution.txt
@@ -115,15 +118,18 @@ python -m src.main --config configs/q1.yaml
 	- 结果表（csv）归档到 `outputs/results/`
 	- QUBO/Ising 矩阵与 meta 归档到 `outputs/qubo_ising/`
 	- 粗筛相关文件归档到 `outputs/prescreen/`
-6. 上机流程：先 `--phase export` 导出 QUBO，再将平台返回解通过 `--solution` 回填解码评估（当前支持 Q1/Q2）。
+6. 上机流程：先 `--phase export` 导出 QUBO，再将平台返回解通过 `--solution` 回填解码评估（当前回填支持 Q1/Q2/Q3）。
 	- 建议将平台返回文件统一放在 `data/platform_feedback/` 目录。
 	- 平台 `.log` 若为 JSON 列表（含 `quboValue` 和 `solutionVector`），程序可直接解析并自动选择候选解。
-7. 8bit 适配：导出时会根据 `qubo_export.precision_method` 自动做精度适配，默认 `truncate`。
-8. 导出产物：
+7. 结果汇总：`q1_result_*.csv` / `q2_result_*.csv` / `q3_result_*.csv` 文件末尾会追加汇总块（Route、Travel time、TW penalty、Objective、Customers served）。
+8. 8bit 适配：导出时会根据 `qubo_export.precision_method` 自动做精度适配，默认 `truncate`。
+9. 导出产物：
 	- `*_qubo_raw.csv`：原始QUBO矩阵
 	- `*_qubo.csv`：8bit适配后的QUBO上机矩阵（整数，QUBO模式）
 	- `*_ising.csv`：8bit适配后的Ising上机矩阵（整数，Ising模式）
 	- `*_qubo_meta.json` 或 `*_ising_meta.json`：导出元数据（含变量规模、方法；split模式下含恢复信息；Ising模式可含辅助位信息）
+	- `q3_export_manifest.json`：Q3 分簇导出清单（列出每个 cluster 的 raw/adapted/meta 文件）
+	- `q4_export_manifest.json`：Q4 分车导出清单（列出每个 vehicle 子问题的 raw/adapted/meta 文件）
 
 ## Problems
 

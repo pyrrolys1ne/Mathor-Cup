@@ -1,0 +1,21 @@
+{
+  "problem": "q3",
+  "tag": "q3_cluster_00",
+  "output_model": "qubo",
+  "method": "truncate",
+  "n_vars_original": 64,
+  "n_vars_exported": 64,
+  "max_abs_original": 1000.0,
+  "max_abs_exported": 108.0,
+  "cluster_id": 0,
+  "n_customers_sub": 7,
+  "customer_ids": [
+    1,
+    10,
+    20,
+    27,
+    30,
+    31,
+    32
+  ]
+}

@@ -48,10 +48,25 @@ def decode_sub_route(
     ----------
     O(K²) for decoding.
     """
-    route = decode_q1_solution(x, qubo_result.n_nodes, qubo_result.var_idx)
-    # Remove depot bookends
-    customers = [n for n in route if n != sub_graph.depot_id]
-    return customers
+    # Q1 decoder returns local node indices in [0, K], where 0 is depot.
+    # For sub-problems we must map local indices back to original global node IDs.
+    route_local = decode_q1_solution(x, qubo_result.n_nodes, qubo_result.var_idx)
+
+    local_to_global = [sub_graph.depot_id] + sorted(sub_graph.customer_ids)
+    customers_global: list[int] = []
+    for nid_local in route_local:
+        nid_local_i = int(nid_local)
+        if nid_local_i == 0:
+            continue
+        if 0 <= nid_local_i < len(local_to_global):
+            customers_global.append(int(local_to_global[nid_local_i]))
+        else:
+            logger.warning(
+                "Sub-route decode local index out of range: %d (size=%d)",
+                nid_local_i,
+                len(local_to_global),
+            )
+    return customers_global
 
 
 def nearest_neighbour_route(

@@ -8,8 +8,8 @@ data:
   num_customers: 50
 
 solver:
-  backend: kaiwu              # hybrid | sa | kaiwu
-  time_limit_sec: 300
+  backend: hybrid             # hybrid | sa | kaiwu
+  time_limit_sec: 500
   seed: 42
 
 # 混合算法参数
@@ -17,7 +17,7 @@ hybrid:
   cluster_method: kmeans      # kmeans | dbscan
   n_clusters: 5               # 子问题数量
   sub_solver: kaiwu           # 子问题求解器：sa | kaiwu
-  local_search_iter: 500      # 全局拼接后的局部搜索轮数
+  local_search_iter: 700      # 全局拼接后的局部搜索轮数
   seed: 42
 
 sa:
@@ -31,8 +31,8 @@ kaiwu:
   # 建议通过环境变量注入密钥：KAIWU_USER_ID / KAIWU_SDK_CODE
   user_id: ""
   sdk_code: ""
-  num_reads: 200
-  annealing_time: 30
+  num_reads: 300
+  annealing_time: 50
 
 time_window:
   alpha: 10
@@ -42,6 +42,12 @@ qubo:
   penalty_visit: 500
   penalty_position: 500
   penalty_tw: 100
+
+# 导出到真机前的精度适配（8bit）
+qubo_export:
+  precision_method: truncate   # none | truncate | mutate | split
+  target_bits: 8
+  output_model: qubo         # qubo | ising
 
 output:
   log_dir: outputs/logs/

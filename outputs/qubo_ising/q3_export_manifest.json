@@ -1,0 +1,48 @@
+{
+  "problem": "q3",
+  "type": "decomposed_clusters",
+  "output_model": "qubo",
+  "n_parts": 5,
+  "entries": [
+    {
+      "tag": "q3_cluster_00",
+      "raw": "outputs\\qubo_ising\\q3_cluster_00_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q3_cluster_00_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q3_cluster_00_qubo_meta.json",
+      "n_vars_original": 64,
+      "n_vars_exported": 64
+    },
+    {
+      "tag": "q3_cluster_01",
+      "raw": "outputs\\qubo_ising\\q3_cluster_01_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q3_cluster_01_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q3_cluster_01_qubo_meta.json",
+      "n_vars_original": 169,
+      "n_vars_exported": 169
+    },
+    {
+      "tag": "q3_cluster_02",
+      "raw": "outputs\\qubo_ising\\q3_cluster_02_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q3_cluster_02_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q3_cluster_02_qubo_meta.json",
+      "n_vars_original": 169,
+      "n_vars_exported": 169
+    },
+    {
+      "tag": "q3_cluster_03",
+      "raw": "outputs\\qubo_ising\\q3_cluster_03_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q3_cluster_03_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q3_cluster_03_qubo_meta.json",
+      "n_vars_original": 144,
+      "n_vars_exported": 144
+    },
+    {
+      "tag": "q3_cluster_04",
+      "raw": "outputs\\qubo_ising\\q3_cluster_04_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q3_cluster_04_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q3_cluster_04_qubo_meta.json",
+      "n_vars_original": 81,
+      "n_vars_exported": 81
+    }
+  ]
+}

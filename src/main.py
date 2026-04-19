@@ -169,6 +169,30 @@ def _result_paths(output_cfg: dict[str, Any], problem: str, source: str) -> tupl
     )
 
 
+def _append_single_result_summary_csv(result_csv: Path, metrics: dict[str, object]) -> None:
+    """Append a human-readable summary block to the bottom of single-route result CSV."""
+    route = metrics.get("route", [])
+    travel = float(metrics.get("total_travel_time", 0.0))
+    penalty = float(metrics.get("total_penalty", 0.0))
+    objective = float(metrics.get("objective", 0.0))
+    n_customers = int(metrics.get("n_customers", 0))
+
+    lines = [
+        "",
+        "# ==================================================",
+        "# Summary",
+        "# ==================================================",
+        f"# Route,{route}",
+        f"# Travel time,{travel:.4f}",
+        f"# TW penalty,{penalty:.4f}",
+        f"# Objective,{objective:.4f}",
+        f"# Customers served,{n_customers}",
+        "# ==================================================",
+    ]
+    with result_csv.open("a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def run_q1(cfg: dict[str, Any], graph) -> None:
     """Run Problem 1 solver and output results."""
     from src.algorithms.local_search import two_opt
@@ -287,6 +311,7 @@ def run_q1(cfg: dict[str, Any], graph) -> None:
     source = "kaiwu" if backend == "kaiwu" else "sa"
     result_csv, route_fig = _result_paths(output_cfg, "q1", source)
     save_metrics_csv(metrics, result_csv)
+    _append_single_result_summary_csv(result_csv, metrics)
     plot_single_route(
         route,
         graph,
@@ -341,8 +366,39 @@ def run_q2(cfg: dict[str, Any], graph) -> None:
 
             kw_cfg = cfg.get("kaiwu", {})
             kw = KaiwuConfig(**{k: v for k, v in kw_cfg.items() if k in KaiwuConfig.__dataclass_fields__})
-            x = solve_qubo_kaiwu(qr.Q, kw)
-            route = decode_q1_solution(x, qr.n_nodes, qr.var_idx)
+            n_restarts = max(1, _as_int(kw_cfg.get("n_restarts"), 8))
+            base_seed = kw.seed if kw.seed is not None else _as_int(solver_cfg.get("seed"), 42)
+
+            best_route: list[int] | None = None
+            best_obj = float("inf")
+            success = 0
+            for i in range(n_restarts):
+                kw_try = KaiwuConfig(**kw.__dict__)
+                kw_try.seed = int(base_seed) + i
+                try:
+                    x = solve_qubo_kaiwu(qr.Q, kw_try)
+                    cand = decode_q1_solution(x, qr.n_nodes, qr.var_idx)
+                    customers = [n for n in cand if n != graph.depot_id]
+                    customers = two_opt(customers, graph)
+                    cand = [graph.depot_id] + customers + [graph.depot_id]
+                    m = single_route_metrics(cand, graph, alpha=alpha, beta=beta)
+                    success += 1
+                    if m["objective"] < best_obj:
+                        best_obj = float(m["objective"])
+                        best_route = cand
+                except Exception as run_exc:
+                    logger.warning("Q2 Kaiwu restart %d/%d failed: %s", i + 1, n_restarts, run_exc)
+
+            if best_route is None:
+                raise RuntimeError("All Kaiwu restarts failed.")
+
+            route = best_route
+            logger.info(
+                "Q2 Kaiwu candidate scan complete: success=%d/%d, best_obj=%.4f",
+                success,
+                n_restarts,
+                best_obj,
+            )
         except Exception as exc:
             logger.warning("Kaiwu failed (%s); falling back to SA.", exc)
             backend = "sa"
@@ -363,6 +419,7 @@ def run_q2(cfg: dict[str, Any], graph) -> None:
     source = "kaiwu" if backend == "kaiwu" else "sa"
     result_csv, route_fig = _result_paths(output_cfg, "q2", source)
     save_metrics_csv(metrics, result_csv)
+    _append_single_result_summary_csv(result_csv, metrics)
     plot_single_route(
         route,
         graph,
@@ -428,7 +485,9 @@ def run_q3(cfg: dict[str, Any], graph) -> None:
     )
 
     result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
-    save_metrics_csv(metrics, result_dir / "q3_result.csv")
+    result_csv = result_dir / "q3_result.csv"
+    save_metrics_csv(metrics, result_csv)
+    _append_single_result_summary_csv(result_csv, metrics)
     plot_single_route(
         route,
         graph,
@@ -563,7 +622,8 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
 def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
     """Export QUBO matrix to CSV for external/real-machine solving.
 
-    Supported problems: q1, q2.
+    Supported problems: q1, q2, q3, q4.
+    For q3/q4, exports decomposed sub-problem matrices and returns a manifest path.
     """
     problem = str(cfg.get("problem", "q1")).lower()
     qubo_cfg = cfg.get("qubo", {})
@@ -577,6 +637,66 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
         logger.warning("Unknown output_model=%s, fallback to 'qubo'.", output_model)
         output_model = "qubo"
 
+    def _export_single_matrix(
+        qr,
+        problem_tag: str,
+        out_name: str,
+        raw_name: str,
+        meta_name: str,
+        extra_meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        out_path = qubo_dir / out_name
+        raw_path = qubo_dir / raw_name
+        meta_path = qubo_dir / meta_name
+
+        np.savetxt(raw_path, qr.Q, delimiter=",", fmt="%.12g")
+        q_export, meta = _adapt_qubo_for_8bit(qr.Q, export_cfg)
+        np.savetxt(out_path, q_export, delimiter=",", fmt="%d")
+
+        meta_payload: dict[str, Any] = {
+            "problem": problem,
+            "tag": problem_tag,
+            "output_model": meta.get("output_model", output_model),
+            "method": meta.get("method", "none"),
+            "n_vars_original": int(qr.Q.shape[0]),
+            "n_vars_exported": int(q_export.shape[0]),
+            "max_abs_original": float(np.max(np.abs(qr.Q))) if qr.Q.size else 0.0,
+            "max_abs_exported": float(np.max(np.abs(q_export))) if q_export.size else 0.0,
+        }
+        if extra_meta:
+            meta_payload.update(extra_meta)
+        if "split_last_idx" in meta:
+            meta_payload["split_last_idx"] = list(meta["split_last_idx"])
+        if "ising_aux_index" in meta:
+            meta_payload["ising_aux_index"] = int(meta["ising_aux_index"])
+        if "decode_supported" in meta:
+            meta_payload["decode_supported"] = bool(meta["decode_supported"])
+
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta_payload, f, ensure_ascii=False, indent=2)
+
+        logger.info(
+            "Exported %s %s matrix (%s): raw=%s, adapted=%s, meta=%s, shape=%s -> %s, max|Q| %.3f -> %.3f",
+            problem_tag.upper(),
+            str(meta_payload["output_model"]).upper(),
+            meta_payload.get("method", "none"),
+            raw_path,
+            out_path,
+            meta_path,
+            qr.Q.shape,
+            q_export.shape,
+            meta_payload["max_abs_original"],
+            meta_payload["max_abs_exported"],
+        )
+        return {
+            "tag": problem_tag,
+            "raw": str(raw_path),
+            "adapted": str(out_path),
+            "meta": str(meta_path),
+            "n_vars_original": meta_payload["n_vars_original"],
+            "n_vars_exported": meta_payload["n_vars_exported"],
+        }
+
     if problem == "q1":
         from src.qubo.q1_qubo import build_q1_qubo
 
@@ -587,9 +707,14 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
         )
         out_name = "q1_ising.csv" if output_model == "ising" else "q1_qubo.csv"
         meta_name = "q1_ising_meta.json" if output_model == "ising" else "q1_qubo_meta.json"
-        out_path = qubo_dir / out_name
-        raw_path = qubo_dir / "q1_qubo_raw.csv"
-        meta_path = qubo_dir / meta_name
+        _export_single_matrix(
+            qr,
+            problem_tag="q1",
+            out_name=out_name,
+            raw_name="q1_qubo_raw.csv",
+            meta_name=meta_name,
+        )
+        return qubo_dir / out_name
     elif problem == "q2":
         from src.qubo.q2_qubo import build_q2_qubo
 
@@ -600,47 +725,130 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
         )
         out_name = "q2_ising.csv" if output_model == "ising" else "q2_qubo.csv"
         meta_name = "q2_ising_meta.json" if output_model == "ising" else "q2_qubo_meta.json"
-        out_path = qubo_dir / out_name
-        raw_path = qubo_dir / "q2_qubo_raw.csv"
-        meta_path = qubo_dir / meta_name
+        _export_single_matrix(
+            qr,
+            problem_tag="q2",
+            out_name=out_name,
+            raw_name="q2_qubo_raw.csv",
+            meta_name=meta_name,
+        )
+        return qubo_dir / out_name
+    elif problem == "q3":
+        from src.algorithms.clustering import cluster_customers
+        from src.core.graph_model import subgraph
+        from src.qubo.q1_qubo import build_q1_qubo
+
+        hybrid_cfg = cfg.get("hybrid", {})
+        labels, _ = cluster_customers(
+            graph,
+            graph.customer_ids,
+            method=hybrid_cfg.get("cluster_method", "kmeans"),
+            n_clusters=_as_int(hybrid_cfg.get("n_clusters"), 5),
+            seed=_as_int(hybrid_cfg.get("seed"), 42),
+        )
+
+        cluster_map: dict[int, list[int]] = {}
+        for cid, lbl in zip(graph.customer_ids, labels):
+            cluster_map.setdefault(int(lbl), []).append(int(cid))
+
+        entries: list[dict[str, Any]] = []
+        for cluster_id, cids in sorted(cluster_map.items()):
+            sub = subgraph(graph, cids)
+            qr = build_q1_qubo(
+                sub,
+                penalty_visit=qubo_cfg.get("penalty_visit", 500),
+                penalty_position=qubo_cfg.get("penalty_position", 500),
+            )
+            suffix = "ising" if output_model == "ising" else "qubo"
+            tag = f"q3_cluster_{cluster_id:02d}"
+            entries.append(
+                _export_single_matrix(
+                    qr,
+                    problem_tag=tag,
+                    out_name=f"{tag}_{suffix}.csv",
+                    raw_name=f"{tag}_qubo_raw.csv",
+                    meta_name=f"{tag}_{suffix}_meta.json",
+                    extra_meta={
+                        "cluster_id": int(cluster_id),
+                        "n_customers_sub": int(len(cids)),
+                        "customer_ids": [int(x) for x in cids],
+                    },
+                )
+            )
+
+        manifest = {
+            "problem": "q3",
+            "type": "decomposed_clusters",
+            "output_model": output_model,
+            "n_parts": len(entries),
+            "entries": entries,
+        }
+        manifest_path = qubo_dir / "q3_export_manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        logger.info("Q3 export complete: %d cluster matrices, manifest=%s", len(entries), manifest_path)
+        return manifest_path
+    elif problem == "q4":
+        from src.algorithms.clustering import cluster_customers
+        from src.algorithms.vehicle_assignment import assign_customers_to_vehicles
+        from src.qubo.q4_qubo import build_vehicle_qubo
+
+        hybrid_cfg = cfg.get("hybrid", {})
+        vehicle_cfg = cfg.get("vehicle", {})
+        labels, _ = cluster_customers(
+            graph,
+            graph.customer_ids,
+            method=hybrid_cfg.get("cluster_method", "kmeans"),
+            n_clusters=_as_int(hybrid_cfg.get("n_clusters"), 5),
+            seed=_as_int(hybrid_cfg.get("seed"), 42),
+        )
+        groups = assign_customers_to_vehicles(
+            graph.customer_ids,
+            graph,
+            _as_float(vehicle_cfg.get("capacity"), 100.0),
+            cluster_labels=labels,
+            seed=_as_int(hybrid_cfg.get("seed"), 42),
+        )
+
+        entries: list[dict[str, Any]] = []
+        suffix = "ising" if output_model == "ising" else "qubo"
+        for idx, cids in enumerate(groups, start=1):
+            qr, _ = build_vehicle_qubo(
+                graph,
+                cids,
+                penalty_visit=qubo_cfg.get("penalty_visit", 500),
+                penalty_position=qubo_cfg.get("penalty_position", 500),
+            )
+            tag = f"q4_vehicle_{idx:02d}"
+            entries.append(
+                _export_single_matrix(
+                    qr,
+                    problem_tag=tag,
+                    out_name=f"{tag}_{suffix}.csv",
+                    raw_name=f"{tag}_qubo_raw.csv",
+                    meta_name=f"{tag}_{suffix}_meta.json",
+                    extra_meta={
+                        "vehicle_index": int(idx),
+                        "n_customers_sub": int(len(cids)),
+                        "customer_ids": [int(x) for x in cids],
+                    },
+                )
+            )
+
+        manifest = {
+            "problem": "q4",
+            "type": "decomposed_vehicles",
+            "output_model": output_model,
+            "n_parts": len(entries),
+            "entries": entries,
+        }
+        manifest_path = qubo_dir / "q4_export_manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        logger.info("Q4 export complete: %d vehicle matrices, manifest=%s", len(entries), manifest_path)
+        return manifest_path
     else:
-        raise ValueError("QUBO export currently supports only q1/q2.")
-
-    np.savetxt(raw_path, qr.Q, delimiter=",", fmt="%.12g")
-    q_export, meta = _adapt_qubo_for_8bit(qr.Q, export_cfg)
-    np.savetxt(out_path, q_export, delimiter=",", fmt="%d")
-
-    meta_payload = {
-        "problem": problem,
-        "output_model": meta.get("output_model", output_model),
-        "method": meta.get("method", "none"),
-        "n_vars_original": int(qr.Q.shape[0]),
-        "n_vars_exported": int(q_export.shape[0]),
-        "max_abs_original": float(np.max(np.abs(qr.Q))) if qr.Q.size else 0.0,
-        "max_abs_exported": float(np.max(np.abs(q_export))) if q_export.size else 0.0,
-    }
-    if "split_last_idx" in meta:
-        meta_payload["split_last_idx"] = list(meta["split_last_idx"])
-    if "ising_aux_index" in meta:
-        meta_payload["ising_aux_index"] = int(meta["ising_aux_index"])
-    if "decode_supported" in meta:
-        meta_payload["decode_supported"] = bool(meta["decode_supported"])
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta_payload, f, ensure_ascii=False, indent=2)
-
-    logger.info(
-        "Exported %s %s matrix: raw=%s, adapted=%s, meta=%s, shape=%s -> %s, max|Q| %.3f -> %.3f",
-        problem.upper(),
-        str(meta_payload["output_model"]).upper(),
-        raw_path,
-        out_path,
-        meta_path,
-        qr.Q.shape,
-        q_export.shape,
-        meta_payload["max_abs_original"],
-        meta_payload["max_abs_exported"],
-    )
-    return out_path
+        raise ValueError("QUBO export supports q1/q2/q3/q4 only.")
 
 
 def _load_solution_vector(
@@ -1159,6 +1367,7 @@ def run_q1_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
     )
     result_csv, route_fig = _result_paths(output_cfg, "q1", "cpqc550")
     save_metrics_csv(metrics, result_csv)
+    _append_single_result_summary_csv(result_csv, metrics)
     plot_single_route(
         route,
         graph,
@@ -1246,6 +1455,7 @@ def run_q2_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
     )
     result_csv, route_fig = _result_paths(output_cfg, "q2", "cpqc550")
     save_metrics_csv(metrics, result_csv)
+    _append_single_result_summary_csv(result_csv, metrics)
     plot_single_route(
         route,
         graph,
@@ -1253,6 +1463,189 @@ def run_q2_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
         save_path=route_fig,
     )
     _print_single_result(metrics, "Q2")
+
+
+def _collect_q3_solution_files(solution_path: str | Path, n_parts: int) -> list[Path]:
+    """Collect Q3 feedback files for decomposed sub-problems.
+
+    Accepts either:
+    - a directory containing q3_run_*.log/json/txt/csv files
+    - one file inside such a directory (auto-collect siblings when n_parts>1)
+    """
+    p = Path(solution_path)
+
+    def _glob_runs(folder: Path) -> list[Path]:
+        files: list[Path] = []
+        for pat in ("q3_run_*.log", "q3_run_*.json", "q3_run_*.txt", "q3_run_*.csv"):
+            files.extend(sorted(folder.glob(pat)))
+        # de-duplicate while preserving sorted order by name
+        uniq: list[Path] = []
+        seen: set[Path] = set()
+        for fp in sorted(files):
+            if fp not in seen:
+                uniq.append(fp)
+                seen.add(fp)
+        return uniq
+
+    if p.is_dir():
+        candidates = _glob_runs(p)
+    else:
+        if n_parts <= 1:
+            return [p]
+        candidates = _glob_runs(p.parent)
+        if p not in candidates:
+            candidates = [p] + candidates
+
+    if len(candidates) < n_parts:
+        raise RuntimeError(
+            f"Insufficient Q3 feedback files: need {n_parts}, found {len(candidates)}. "
+            f"Place q3_run_*.log under {p if p.is_dir() else p.parent}."
+        )
+    if len(candidates) > n_parts:
+        logger.warning(
+            "Q3 feedback files exceed required parts (%d > %d); using first %d files.",
+            len(candidates),
+            n_parts,
+            n_parts,
+        )
+    return candidates[:n_parts]
+
+
+def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None:
+    """Decode external Q3 decomposed solutions and evaluate full-route metrics."""
+    from src.algorithms.local_search import or_opt, two_opt
+    from src.algorithms.route_decode import decode_sub_route
+    from src.core.graph_model import subgraph
+    from src.core.time_window import simulate_route_timing
+    from src.eval.metrics import save_metrics_csv, single_route_metrics
+    from src.qubo.q1_qubo import build_q1_qubo
+    from src.solvers.hybrid_large_scale import _stitch_routes
+    from src.viz.plot_routes import plot_clusters, plot_single_route
+
+    output_cfg = cfg["output"]
+    qubo_cfg = cfg.get("qubo", {})
+    tw_cfg = cfg.get("time_window", {})
+    hybrid_cfg = cfg.get("hybrid", {})
+    alpha = tw_cfg.get("alpha", 10.0)
+    beta = tw_cfg.get("beta", 20.0)
+    local_iter = _as_int(hybrid_cfg.get("local_search_iter"), 500)
+
+    qubo_dir = Path(output_cfg.get("qubo_dir", "outputs/qubo_ising"))
+    manifest_path = qubo_dir / "q3_export_manifest.json"
+    if not manifest_path.exists():
+        raise RuntimeError(
+            f"Q3 manifest not found: {manifest_path}. Run --phase export for q3 first."
+        )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entries = manifest.get("entries", [])
+    if not isinstance(entries, list) or not entries:
+        raise RuntimeError(f"Q3 manifest has no entries: {manifest_path}")
+
+    solution_files = _collect_q3_solution_files(solution_path, len(entries))
+    logger.info("Q3 external-solution: using %d feedback files.", len(solution_files))
+
+    def _obj(customer_perm: list[int]) -> float:
+        route = [graph.depot_id] + list(customer_perm) + [graph.depot_id]
+        timing = simulate_route_timing(route, graph, alpha=alpha, beta=beta)
+        return timing.total_travel_time + timing.total_penalty
+
+    cluster_routes: list[list[int]] = []
+    label_map: dict[int, int] = {}
+
+    for i, (entry, sol_file) in enumerate(zip(entries, solution_files), start=1):
+        meta_path = Path(str(entry.get("meta", "")))
+        if not meta_path.is_absolute():
+            meta_path = (Path.cwd() / meta_path).resolve()
+        if not meta_path.exists():
+            raise RuntimeError(f"Q3 subproblem meta not found: {meta_path}")
+
+        sub_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        customer_ids = [int(x) for x in sub_meta.get("customer_ids", [])]
+        if not customer_ids:
+            raise RuntimeError(f"Missing customer_ids in meta: {meta_path}")
+
+        cluster_id = int(sub_meta.get("cluster_id", i - 1))
+        for cid in customer_ids:
+            label_map[cid] = cluster_id
+
+        sub = subgraph(graph, customer_ids)
+        qr = build_q1_qubo(
+            sub,
+            penalty_visit=qubo_cfg.get("penalty_visit", 500),
+            penalty_position=qubo_cfg.get("penalty_position", 500),
+        )
+
+        vectors = _load_solution_vectors_from_log(sol_file, qr.n_vars, meta_path)
+        if vectors is None:
+            vectors = [_load_solution_vector(sol_file, qr.n_vars, meta_path)]
+
+        best_sub: list[int] | None = None
+        best_cost = float("inf")
+        for vec in vectors:
+            cand = decode_sub_route(vec, sub, qr)
+            if len(cand) >= 3:
+                improved = two_opt(cand, graph, n_iter=max(100, local_iter // 5))
+                if _obj(improved) < _obj(cand):
+                    cand = improved
+            c = _obj(cand)
+            if c < best_cost:
+                best_cost = c
+                best_sub = cand
+
+        if best_sub is None:
+            raise RuntimeError(f"No decodable candidate found for subproblem {i} from {sol_file}")
+        cluster_routes.append(best_sub)
+        logger.info(
+            "Q3 subproblem %d/%d decoded from %s, best_sub_obj=%.4f",
+            i,
+            len(entries),
+            sol_file,
+            best_cost,
+        )
+
+    stitched = _stitch_routes(cluster_routes, graph)
+    best_perm = list(stitched)
+    best_obj = _obj(best_perm)
+
+    cand = two_opt(best_perm, graph, n_iter=local_iter)
+    c = _obj(cand)
+    if c < best_obj:
+        best_perm, best_obj = cand, c
+
+    cand = or_opt(best_perm, graph, n_iter=max(1, local_iter // 2))
+    c = _obj(cand)
+    if c < best_obj:
+        best_perm, best_obj = cand, c
+
+    route = [graph.depot_id] + best_perm + [graph.depot_id]
+    metrics = single_route_metrics(route, graph, alpha=alpha, beta=beta)
+    logger.info(
+        "Q3 external-solution result: obj=%.4f (travel=%.4f, penalty=%.4f)",
+        metrics["objective"],
+        metrics["total_travel_time"],
+        metrics["total_penalty"],
+    )
+
+    result_csv, route_fig = _result_paths(output_cfg, "q3", "cpqc550")
+    save_metrics_csv(metrics, result_csv)
+    _append_single_result_summary_csv(result_csv, metrics)
+    plot_single_route(
+        route,
+        graph,
+        title=f"Q3 Route (cpqc550, obj={metrics['objective']:.2f})",
+        save_path=route_fig,
+    )
+
+    labels = np.array([label_map.get(int(cid), -1) for cid in graph.customer_ids], dtype=int)
+    plot_clusters(
+        graph,
+        labels,
+        graph.customer_ids,
+        title="Q3 Clusters (from export manifest)",
+        save_path=Path(output_cfg["figure_dir"]) / "q3_clusters_cpqc550.png",
+    )
+    _print_single_result(metrics, "Q3")
 
 
 # ---------------------------------------------------------------------------
@@ -1318,7 +1711,7 @@ def _print_multi_result(metrics: dict, label: str) -> None:
     "--solution",
     type=click.Path(exists=True),
     default=None,
-    help="Path to external solution vector file (for q1/q2 decode/evaluate).",
+    help="Path to external solution file (q1/q2 vector; q3 supports decomposed feedback logs).",
 )
 def cli(config: str, phase: str, sensitivity: bool, solution: str | None) -> None:
     """MathorCup 2026 — Quantum Logistics Optimisation CLI.
@@ -1357,8 +1750,10 @@ def cli(config: str, phase: str, sensitivity: bool, solution: str | None) -> Non
             run_q1_from_solution(cfg, graph, solution)
         elif problem.lower() == "q2":
             run_q2_from_solution(cfg, graph, solution)
+        elif problem.lower() == "q3":
+            run_q3_from_solution(cfg, graph, solution)
         else:
-            click.echo("--solution is currently supported only for q1/q2.", err=True)
+            click.echo("--solution is currently supported only for q1/q2/q3.", err=True)
             sys.exit(1)
         logger.info("Problem %s complete (external solution).", problem.upper())
         return

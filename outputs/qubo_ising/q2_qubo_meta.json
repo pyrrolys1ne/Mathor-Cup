@@ -1,9 +1,10 @@
 {
   "problem": "q2",
+  "tag": "q2",
   "output_model": "qubo",
   "method": "truncate",
   "n_vars_original": 256,
   "n_vars_exported": 256,
   "max_abs_original": 1000.0,
-  "max_abs_exported": 92.0
+  "max_abs_exported": 32.0
 }
