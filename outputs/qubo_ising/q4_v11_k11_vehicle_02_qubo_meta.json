@@ -1,0 +1,19 @@
+{
+  "problem": "q4",
+  "tag": "q4_v11_k11_vehicle_02",
+  "output_model": "qubo",
+  "method": "truncate",
+  "n_vars_original": 36,
+  "n_vars_exported": 36,
+  "max_abs_original": 1000.0,
+  "max_abs_exported": 128.0,
+  "vehicle_index": 2,
+  "n_customers_sub": 5,
+  "customer_ids": [
+    3,
+    12,
+    24,
+    29,
+    33
+  ]
+}

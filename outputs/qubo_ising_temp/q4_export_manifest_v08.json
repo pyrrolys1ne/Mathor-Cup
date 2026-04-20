@@ -1,0 +1,76 @@
+{
+  "problem": "q4",
+  "type": "decomposed_vehicles",
+  "target_vehicles": 8,
+  "selected_k": 8,
+  "selection_mode": "best_proxy",
+  "proxy_total_time": 103.0,
+  "output_model": "ising",
+  "n_parts": 8,
+  "entries": [
+    {
+      "tag": "q4_v08_k08_vehicle_01",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_01_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_01_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_01_ising_meta.json",
+      "n_vars_original": 64,
+      "n_vars_exported": 65
+    },
+    {
+      "tag": "q4_v08_k08_vehicle_02",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_02_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_02_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_02_ising_meta.json",
+      "n_vars_original": 64,
+      "n_vars_exported": 65
+    },
+    {
+      "tag": "q4_v08_k08_vehicle_03",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_03_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_03_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_03_ising_meta.json",
+      "n_vars_original": 64,
+      "n_vars_exported": 65
+    },
+    {
+      "tag": "q4_v08_k08_vehicle_04",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_04_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_04_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_04_ising_meta.json",
+      "n_vars_original": 64,
+      "n_vars_exported": 65
+    },
+    {
+      "tag": "q4_v08_k08_vehicle_05",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_05_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_05_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_05_ising_meta.json",
+      "n_vars_original": 49,
+      "n_vars_exported": 50
+    },
+    {
+      "tag": "q4_v08_k08_vehicle_06",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_06_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_06_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_06_ising_meta.json",
+      "n_vars_original": 36,
+      "n_vars_exported": 37
+    },
+    {
+      "tag": "q4_v08_k08_vehicle_07",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_07_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_07_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_07_ising_meta.json",
+      "n_vars_original": 64,
+      "n_vars_exported": 65
+    },
+    {
+      "tag": "q4_v08_k08_vehicle_08",
+      "raw": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_08_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_08_ising.csv",
+      "meta": "outputs\\qubo_ising_temp\\q4_v08_k08_vehicle_08_ising_meta.json",
+      "n_vars_original": 25,
+      "n_vars_exported": 26
+    }
+  ]
+}

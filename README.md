@@ -81,7 +81,30 @@ python -m src.main --config configs/q4.yaml   # 问题4
 python -m src.main --config configs/q1.yaml --phase export   # outputs/qubo_ising/q1_qubo.csv 或 q1_ising.csv（取决于output_model）
 python -m src.main --config configs/q2.yaml --phase export   # outputs/qubo_ising/q2_qubo.csv
 python -m src.main --config configs/q3.yaml --phase export   # outputs/qubo_ising/q3_export_manifest.json（分簇子问题矩阵）
-python -m src.main --config configs/q4.yaml --phase export   # outputs/qubo_ising/q4_export_manifest.json（分车子问题矩阵）
+python -m src.main --config configs/q4.yaml --phase export   # Q4 默认按 vehicles-driven 批量导出（见下方说明）
+
+# 6.1.1) Q4（按目标车辆数批量导出，推荐）
+# 读取 configs/q4.yaml 中 sensitivity.min_vehicles~max_vehicles（例如 5..11）
+# 并自动搜索匹配 K，生成每个目标车辆数的子问题矩阵
+# K 选择策略（qubo_export.k_selection_mode）：
+#   first_hit   -> 选第一个命中的K（通常是最小K）
+#   best_proxy  -> 在命中的K里，选“代理总路程”最小的K（默认，耗时略增但通常更稳）
+# 若某个目标车辆数在 K 搜索区间内不可达：
+#   qubo_export.strict_target_match=false -> 跳过该目标并继续导出其余目标（推荐）
+#   qubo_export.strict_target_match=true  -> 立即报错并停止
+python -m src.main --config configs/q4.yaml --phase export
+
+# 产物示例：
+# outputs/qubo_ising/q4_v05_k04_vehicle_01_qubo.csv
+# outputs/qubo_ising/q4_export_manifest_v05.json
+# outputs/qubo_ising/q4_export_manifest_vehicle_sweep.json
+
+# 6.1.2) Q4（只导出某一个目标车辆数）
+# 在 configs/q4.yaml 中把 sensitivity 改成同一个值，例如 7：
+#   min_vehicles: 7
+#   max_vehicles: 7
+# 然后执行同一条命令：
+# python -m src.main --config configs/q4.yaml --phase export
 
 # 6.2) 回填上机结果并生成评估与图（支持 txt/csv 位向量、平台 JSON 日志）
 python -m src.main --config configs/q1.yaml --solution data/platform_feedback/q1_run_01.log
@@ -126,6 +149,11 @@ python -m src.main --config configs/q1.yaml
 	- 候选池按编号自动配对：子问题1使用 `q3_run_01` 和 `q3_run_06`，子问题2使用 `q3_run_02` 和 `q3_run_07`，以此类推。
 	- 推荐命名：`q3_run_01.log` ... `q3_run_10.log`（也支持 json/txt/csv）。
 	- Q4 回填建议将分车子问题反馈命名为 `q4_run_01.log`、`q4_run_02.log`...，并放在 `data/platform_feedback/` 目录。
+	- Q4 回填默认读取 `outputs/qubo_ising/q4_export_manifest.json` 对应的那一批子问题。
+	- 在 vehicles-driven 批量导出下，`q4_export_manifest.json` 默认指向最后一个目标车辆数（通常是 max_vehicles）。
+	- 若要回填某个特定车辆数（例如 v05），先将对应清单复制为默认名再回填：
+	  - `Copy-Item outputs/qubo_ising/q4_export_manifest_v05.json outputs/qubo_ising/q4_export_manifest.json -Force`
+	  - `python -m src.main --config configs/q4.yaml --solution data/platform_feedback`
 7. 结果汇总：`q1_result_*.csv` / `q2_result_*.csv` / `q3_result_*.csv` 文件末尾会追加汇总块（Route、Travel time、TW penalty、Objective、Customers served）。
 	- Q4 输出采用来源后缀命名：本地求解为 `q4_result_hybrid.csv` 或 `q4_result_kaiwu.csv`，回填为 `q4_result_cpqc550.csv`。
 8. 8bit 适配：导出时会根据 `qubo_export.precision_method` 自动做精度适配，默认 `truncate`。
@@ -135,7 +163,11 @@ python -m src.main --config configs/q1.yaml
 	- `*_ising.csv`：8bit适配后的Ising上机矩阵（整数，Ising模式）
 	- `*_qubo_meta.json` 或 `*_ising_meta.json`：导出元数据（含变量规模、方法；split模式下含恢复信息；Ising模式可含辅助位信息）
 	- `q3_export_manifest.json`：Q3 分簇导出清单（列出每个 cluster 的 raw/adapted/meta 文件）
-	- `q4_export_manifest.json`：Q4 分车导出清单（列出每个 vehicle 子问题的 raw/adapted/meta 文件）
+	- `q4_export_manifest_vXX.json`：Q4 指定目标车辆数（vXX）对应的分车导出清单
+	- `q4_export_manifest_vehicle_sweep.json`：Q4 批量导出总清单（记录每个 vXX 选中的 K 与 manifest）
+	  - 该文件包含 `k_selection_mode`，以及每个目标的 `proxy_total_time`（best_proxy 模式下用于比较）
+	  - 该文件额外记录 `reachable_vehicle_counts` 与 `missing_targets`，用于判断哪些目标车辆数在当前搜索范围内可达
+	- `q4_export_manifest.json`：Q4 默认回填入口清单（latest alias）
 
 ## Problems
 

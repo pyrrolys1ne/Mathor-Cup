@@ -1,0 +1,60 @@
+{
+  "problem": "q4",
+  "type": "decomposed_vehicles",
+  "target_vehicles": 6,
+  "selected_k": 5,
+  "selection_mode": "best_proxy",
+  "proxy_total_time": 90.0,
+  "output_model": "qubo",
+  "n_parts": 6,
+  "entries": [
+    {
+      "tag": "q4_v06_k05_vehicle_01",
+      "raw": "outputs\\qubo_ising\\q4_v06_k05_vehicle_01_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q4_v06_k05_vehicle_01_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q4_v06_k05_vehicle_01_qubo_meta.json",
+      "n_vars_original": 64,
+      "n_vars_exported": 64
+    },
+    {
+      "tag": "q4_v06_k05_vehicle_02",
+      "raw": "outputs\\qubo_ising\\q4_v06_k05_vehicle_02_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q4_v06_k05_vehicle_02_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q4_v06_k05_vehicle_02_qubo_meta.json",
+      "n_vars_original": 169,
+      "n_vars_exported": 169
+    },
+    {
+      "tag": "q4_v06_k05_vehicle_03",
+      "raw": "outputs\\qubo_ising\\q4_v06_k05_vehicle_03_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q4_v06_k05_vehicle_03_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q4_v06_k05_vehicle_03_qubo_meta.json",
+      "n_vars_original": 121,
+      "n_vars_exported": 121
+    },
+    {
+      "tag": "q4_v06_k05_vehicle_04",
+      "raw": "outputs\\qubo_ising\\q4_v06_k05_vehicle_04_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q4_v06_k05_vehicle_04_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q4_v06_k05_vehicle_04_qubo_meta.json",
+      "n_vars_original": 9,
+      "n_vars_exported": 9
+    },
+    {
+      "tag": "q4_v06_k05_vehicle_05",
+      "raw": "outputs\\qubo_ising\\q4_v06_k05_vehicle_05_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q4_v06_k05_vehicle_05_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q4_v06_k05_vehicle_05_qubo_meta.json",
+      "n_vars_original": 144,
+      "n_vars_exported": 144
+    },
+    {
+      "tag": "q4_v06_k05_vehicle_06",
+      "raw": "outputs\\qubo_ising\\q4_v06_k05_vehicle_06_qubo_raw.csv",
+      "adapted": "outputs\\qubo_ising\\q4_v06_k05_vehicle_06_qubo.csv",
+      "meta": "outputs\\qubo_ising\\q4_v06_k05_vehicle_06_qubo_meta.json",
+      "n_vars_original": 81,
+      "n_vars_exported": 81
+    }
+  ]
+}

@@ -209,6 +209,85 @@ def _append_single_result_summary_csv(result_csv: Path, metrics: dict[str, objec
         f.write("\n".join(lines) + "\n")
 
 
+def _append_multi_result_summary_csv(
+    result_csv: Path,
+    metrics: dict[str, object],
+    include_routes: bool = False,
+) -> None:
+    """Append a human-readable summary block to a multi-vehicle result CSV."""
+    lines = [
+        "",
+        "=" * 50,
+        "  Q4 Results",
+        "=" * 50,
+        f"  Vehicles        : {int(metrics.get('n_vehicles', 0))}",
+        f"  Total travel    : {float(metrics.get('total_travel_time', 0.0)):.4f}",
+        f"  Total TW penalty: {float(metrics.get('total_penalty', 0.0)):.4f}",
+        f"  Objective       : {float(metrics.get('objective', 0.0)):.4f}",
+    ]
+
+    for v in metrics.get("vehicles", []):
+        lines.append(
+            f"    V{v['vehicle_id']}: route_len={v['n_customers']}, "
+            f"load={v['load']:.1f} ({v['load_ratio']*100:.0f}%), "
+            f"travel={v['travel_time']:.2f}, penalty={v['penalty']:.2f}"
+        )
+        if include_routes:
+            lines.append(f"      route: {v['route']}")
+
+    lines.append("=" * 50)
+    with result_csv.open("a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def _append_q4_k_snapshot(
+    out_path: Path,
+    k: int,
+    metrics: dict[str, object] | None,
+    status: str = "DONE",
+) -> None:
+    """Append one K-iteration snapshot for Q4 realtime tracking."""
+    lines = ["", f"K = {k}  [{status}]"]
+
+    if metrics is None:
+        with out_path.open("a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        return
+
+    lines.append("node_id,arrival_time,early_violation,late_violation,penalty,vehicle_id")
+    for v in metrics.get("vehicles", []):
+        vid = v["vehicle_id"]
+        for rec in v.get("per_node", []):
+            lines.append(
+                f"{rec['node_id']},{float(rec['arrival_time']):.6g},"
+                f"{float(rec['early_violation']):.6g},{float(rec['late_violation']):.6g},"
+                f"{float(rec['penalty']):.6g},{vid}"
+            )
+
+    lines.extend(
+        [
+            "=" * 50,
+            "  Q4 Results",
+            "=" * 50,
+            f"  Vehicles        : {int(metrics.get('n_vehicles', 0))}",
+            f"  Total travel    : {float(metrics.get('total_travel_time', 0.0)):.4f}",
+            f"  Total TW penalty: {float(metrics.get('total_penalty', 0.0)):.4f}",
+            f"  Objective       : {float(metrics.get('objective', 0.0)):.4f}",
+        ]
+    )
+    for v in metrics.get("vehicles", []):
+        lines.append(
+            f"    V{v['vehicle_id']}: route_len={v['n_customers']}, "
+            f"load={v['load']:.1f} ({v['load_ratio']*100:.0f}%), "
+            f"travel={v['travel_time']:.2f}, penalty={v['penalty']:.2f}"
+        )
+        lines.append(f"      route: {v['route']}")
+    lines.append("=" * 50)
+
+    with out_path.open("a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def run_q1(cfg: dict[str, Any], graph) -> None:
     """Run Problem 1 solver and output results."""
     from src.algorithms.local_search import two_opt
@@ -545,7 +624,7 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
     alpha = tw_cfg.get("alpha", 10.0)
     beta = tw_cfg.get("beta", 20.0)
     vehicle_capacity, cap_source = _resolve_vehicle_capacity(cfg, fallback=100.0)
-    optimization_mode = str(vehicle_cfg.get("optimization_mode", "weighted")).lower()
+    optimization_mode = str(vehicle_cfg.get("optimization_mode", "lexicographic")).lower()
     weight_vehicle = _as_float(obj_cfg.get("alpha", 1.0), 1.0)
     weight_travel = _as_float(obj_cfg.get("beta", 1.0), 1.0)
     weight_penalty = _as_float(obj_cfg.get("gamma", 1.0), 1.0)
@@ -554,10 +633,10 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
 
     if optimization_mode not in {"lexicographic", "weighted"}:
         logger.warning(
-            "Unknown optimization_mode=%s for Q4, fallback to weighted.",
+            "Unknown optimization_mode=%s for Q4, fallback to lexicographic.",
             optimization_mode,
         )
-        optimization_mode = "weighted"
+        optimization_mode = "lexicographic"
 
     logger.info("Q4 vehicle capacity=%.4f (source=%s)", float(vehicle_capacity), cap_source)
     logger.info(
@@ -645,8 +724,14 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
     best_vehicle_routes: list[list[int]] | None = None
     best_metrics: dict[str, object] | None = None
     best_q4 = None
-    best_key: tuple[int, float] | None = None
+    best_key: tuple[int, float, float] | None = None
     best_score: float | None = None
+
+    result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
+    source = "kaiwu" if backend == "kaiwu" else "hybrid"
+    per_k_path = result_dir / f"q4_vehicles_{source}.csv"
+    per_k_path.parent.mkdir(parents=True, exist_ok=True)
+    per_k_path.write_text("", encoding="utf-8")
 
     k_values = list(range(min_k, max_k + 1))
     logger.info(
@@ -688,6 +773,12 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
                 best_key[0],
                 time.perf_counter() - k_t0,
             )
+            _append_q4_k_snapshot(
+                per_k_path,
+                k,
+                None,
+                status=f"SKIPPED: groups={used_vehicles} worse than current best vehicles={best_key[0]}",
+            )
             continue
 
         vehicle_routes = [_solve_group(group) for group in customer_groups]
@@ -701,7 +792,7 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
             + weight_travel * total_travel
             + weight_penalty * total_penalty
         )
-        key = (n_vehicles, float(metrics["objective"]))
+        key = (n_vehicles, total_travel, total_penalty)
 
         logger.info(
             "Q4 progress: [%d/%d] done K=%d -> used=%d, travel=%.4f, penalty=%.4f, score=%.4f, obj=%.4f, elapsed=%.2fs",
@@ -712,9 +803,11 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
             total_travel,
             total_penalty,
             score,
-            key[1],
+            float(metrics["objective"]),
             time.perf_counter() - k_t0,
         )
+
+        _append_q4_k_snapshot(per_k_path, k, metrics, status="DONE")
 
         if optimization_mode == "lexicographic":
             if best_key is None or key < best_key:
@@ -749,9 +842,9 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
         q4_result.capacity_report.feasible if q4_result.capacity_report else "N/A",
     )
 
-    result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
-    source = "kaiwu" if backend == "kaiwu" else "hybrid"
-    save_metrics_csv(metrics, result_dir / f"q4_result_{source}.csv")
+    result_csv = result_dir / f"q4_result_{source}.csv"
+    save_metrics_csv(metrics, result_csv)
+    _append_multi_result_summary_csv(result_csv, metrics, include_routes=True)
     plot_multi_vehicle_routes(
         vehicle_routes,
         graph,
@@ -812,7 +905,7 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
     qubo_dir.mkdir(parents=True, exist_ok=True)
 
     export_cfg = cfg.get("qubo_export", {})
-    output_model = str(export_cfg.get("output_model", "qubo")).lower()
+    output_model = str(export_cfg.get("output_model", "qubo")).strip().lower()
     if output_model not in {"qubo", "ising"}:
         logger.warning("Unknown output_model=%s, fallback to 'qubo'.", output_model)
         output_model = "qubo"
@@ -974,67 +1067,262 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
         from src.qubo.q4_qubo import build_vehicle_qubo
 
         hybrid_cfg = cfg.get("hybrid", {})
+        sens_cfg = cfg.get("sensitivity", {})
         vehicle_cfg = cfg.get("vehicle", {})
-        labels, _ = cluster_customers(
-            graph,
-            graph.customer_ids,
-            method=hybrid_cfg.get("cluster_method", "kmeans"),
-            n_clusters=_as_int(hybrid_cfg.get("n_clusters"), 5),
-            seed=_as_int(hybrid_cfg.get("seed"), 42),
-        )
-        groups = assign_customers_to_vehicles(
-            graph.customer_ids,
-            graph,
-            _as_float(vehicle_cfg.get("capacity"), 100.0),
-            cluster_labels=labels,
-            seed=_as_int(hybrid_cfg.get("seed"), 42),
-        )
-
-        max_parts = _as_int(export_cfg.get("max_parts"), 0)
-        if max_parts > 0 and len(groups) > max_parts:
-            raise RuntimeError(
-                "Q4 export aborted: decomposed subproblems exceed budget "
-                f"({len(groups)} > max_parts={max_parts}). "
-                "Reduce hybrid.n_clusters or increase vehicle.capacity, then retry."
-            )
-
-        entries: list[dict[str, Any]] = []
         suffix = "ising" if output_model == "ising" else "qubo"
-        for idx, cids in enumerate(groups, start=1):
-            qr, _ = build_vehicle_qubo(
+
+        def _groups_for_k(k: int) -> list[list[int]]:
+            labels, _ = cluster_customers(
                 graph,
-                cids,
-                penalty_visit=qubo_cfg.get("penalty_visit", 500),
-                penalty_position=qubo_cfg.get("penalty_position", 500),
+                graph.customer_ids,
+                method=hybrid_cfg.get("cluster_method", "kmeans"),
+                n_clusters=k,
+                seed=_as_int(hybrid_cfg.get("seed"), 42),
             )
-            tag = f"q4_vehicle_{idx:02d}"
-            entries.append(
-                _export_single_matrix(
-                    qr,
-                    problem_tag=tag,
-                    out_name=f"{tag}_{suffix}.csv",
-                    raw_name=f"{tag}_qubo_raw.csv",
-                    meta_name=f"{tag}_{suffix}_meta.json",
-                    extra_meta={
-                        "vehicle_index": int(idx),
-                        "n_customers_sub": int(len(cids)),
-                        "customer_ids": [int(x) for x in cids],
-                    },
-                )
+            return assign_customers_to_vehicles(
+                graph.customer_ids,
+                graph,
+                _as_float(vehicle_cfg.get("capacity"), 100.0),
+                cluster_labels=labels,
+                seed=_as_int(hybrid_cfg.get("seed"), 42),
             )
 
-        manifest = {
+        def _proxy_route_time(group: list[int]) -> float:
+            if not group:
+                return 0.0
+            unvisited = set(int(x) for x in group)
+            current = int(graph.depot_id)
+            total = 0.0
+            while unvisited:
+                nxt = min(unvisited, key=lambda nid: graph.travel(current, int(nid)))
+                total += float(graph.travel(current, int(nxt)))
+                current = int(nxt)
+                unvisited.remove(nxt)
+            total += float(graph.travel(current, int(graph.depot_id)))
+            return total
+
+        def _proxy_total_time(groups: list[list[int]]) -> float:
+            return float(sum(_proxy_route_time(g) for g in groups))
+
+        def _export_groups(
+            groups: list[list[int]],
+            *,
+            selected_k: int,
+            file_prefix: str,
+        ) -> list[dict[str, Any]]:
+            max_parts = _as_int(export_cfg.get("max_parts"), 0)
+            if max_parts > 0 and len(groups) > max_parts:
+                raise RuntimeError(
+                    "Q4 export aborted: decomposed subproblems exceed budget "
+                    f"({len(groups)} > max_parts={max_parts}). "
+                    "Reduce target vehicles / hybrid.n_clusters or increase vehicle.capacity, then retry."
+                )
+
+            entries: list[dict[str, Any]] = []
+            for idx, cids in enumerate(groups, start=1):
+                qr, _ = build_vehicle_qubo(
+                    graph,
+                    cids,
+                    penalty_visit=qubo_cfg.get("penalty_visit", 500),
+                    penalty_position=qubo_cfg.get("penalty_position", 500),
+                )
+                tag = f"{file_prefix}_vehicle_{idx:02d}"
+                entries.append(
+                    _export_single_matrix(
+                        qr,
+                        problem_tag=tag,
+                        out_name=f"{tag}_{suffix}.csv",
+                        raw_name=f"{tag}_qubo_raw.csv",
+                        meta_name=f"{tag}_{suffix}_meta.json",
+                        extra_meta={
+                            "vehicle_index": int(idx),
+                            "n_customers_sub": int(len(cids)),
+                            "customer_ids": [int(x) for x in cids],
+                        },
+                    )
+                )
+            return entries
+
+        vehicle_driven_export = bool(export_cfg.get("vehicle_driven", False))
+
+        if not vehicle_driven_export:
+            selected_k = _as_int(hybrid_cfg.get("n_clusters"), 5)
+            groups = _groups_for_k(selected_k)
+            entries = _export_groups(groups, selected_k=selected_k, file_prefix=f"q4_k{selected_k:02d}")
+
+            manifest = {
+                "problem": "q4",
+                "type": "decomposed_vehicles",
+                "selected_k": int(selected_k),
+                "output_model": output_model,
+                "n_parts": len(entries),
+                "entries": entries,
+            }
+            manifest_path = qubo_dir / f"q4_export_manifest_k{selected_k:02d}.json"
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=False, indent=2)
+            latest_manifest = qubo_dir / "q4_export_manifest.json"
+            with open(latest_manifest, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=False, indent=2)
+            logger.info(
+                "Q4 export complete: K=%d, %d vehicle matrices, manifest=%s (latest alias=%s)",
+                selected_k,
+                len(entries),
+                manifest_path,
+                latest_manifest,
+            )
+            return manifest_path
+
+        # Vehicle-count-driven export: auto-search a K that produces each target vehicle count.
+        step = max(1, _as_int(sens_cfg.get("step"), 1))
+        min_v = _as_int(sens_cfg.get("min_vehicles"), 5)
+        max_v = _as_int(sens_cfg.get("max_vehicles"), min_v)
+        target_counts = list(range(min_v, max_v + 1, step))
+        if not target_counts:
+            raise RuntimeError("Q4 export aborted: empty target vehicle count range.")
+
+        k_search_min = _as_int(export_cfg.get("k_search_min"), 2)
+        k_search_max = _as_int(export_cfg.get("k_search_max"), len(graph.customer_ids))
+        if k_search_min > k_search_max:
+            raise RuntimeError(
+                f"Q4 export aborted: invalid K search range ({k_search_min} > {k_search_max})."
+            )
+
+        strict_target_match = bool(export_cfg.get("strict_target_match", False))
+        k_selection_mode = str(export_cfg.get("k_selection_mode", "first_hit")).lower()
+        if k_selection_mode not in {"first_hit", "best_proxy"}:
+            raise RuntimeError(
+                "Q4 export aborted: invalid qubo_export.k_selection_mode. "
+                "Use 'first_hit' or 'best_proxy'."
+            )
+
+        batch: list[dict[str, Any]] = []
+        missing_targets: list[int] = []
+        latest_manifest: Path | None = None
+        candidates_by_vehicle_count: dict[int, list[dict[str, Any]]] = {}
+        for k in range(k_search_min, k_search_max + 1):
+            cand = _groups_for_k(k)
+            vehicle_count = len(cand)
+            proxy_total_time = _proxy_total_time(cand)
+            candidates_by_vehicle_count.setdefault(vehicle_count, []).append(
+                {
+                    "k": int(k),
+                    "groups": cand,
+                    "proxy_total_time": float(proxy_total_time),
+                }
+            )
+
+        reachable_counts = sorted(candidates_by_vehicle_count.keys())
+        logger.info(
+            "Q4 vehicle-driven search summary: K range=[%d,%d], mode=%s, reachable vehicle counts=%s",
+            k_search_min,
+            k_search_max,
+            k_selection_mode,
+            reachable_counts,
+        )
+
+        for target_v in target_counts:
+            matches = candidates_by_vehicle_count.get(target_v, [])
+            if not matches:
+                if strict_target_match:
+                    raise RuntimeError(
+                        "Q4 export aborted: cannot find a K yielding target vehicle count "
+                        f"v={target_v} within K=[{k_search_min}, {k_search_max}]. "
+                        f"Reachable counts={reachable_counts}."
+                    )
+                missing_targets.append(int(target_v))
+                logger.warning(
+                    "Q4 export skip target vehicles=%d: no matched K in [%d,%d].",
+                    target_v,
+                    k_search_min,
+                    k_search_max,
+                )
+                continue
+
+            if k_selection_mode == "best_proxy":
+                selected = min(
+                    matches,
+                    key=lambda it: (float(it["proxy_total_time"]), int(it["k"])),
+                )
+            else:
+                selected = min(matches, key=lambda it: int(it["k"]))
+
+            selected_k = int(selected["k"])
+            groups = selected["groups"]
+            selected_proxy_time = float(selected["proxy_total_time"])
+
+            prefix = f"q4_v{target_v:02d}_k{selected_k:02d}"
+            entries = _export_groups(groups, selected_k=selected_k, file_prefix=prefix)
+            manifest = {
+                "problem": "q4",
+                "type": "decomposed_vehicles",
+                "target_vehicles": int(target_v),
+                "selected_k": int(selected_k),
+                "selection_mode": str(k_selection_mode),
+                "proxy_total_time": float(selected_proxy_time),
+                "output_model": output_model,
+                "n_parts": len(entries),
+                "entries": entries,
+            }
+            manifest_path = qubo_dir / f"q4_export_manifest_v{target_v:02d}.json"
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=False, indent=2)
+            latest_manifest = manifest_path
+            batch.append(
+                {
+                    "target_vehicles": int(target_v),
+                    "selected_k": int(selected_k),
+                    "selection_mode": str(k_selection_mode),
+                    "proxy_total_time": float(selected_proxy_time),
+                    "n_parts": int(len(entries)),
+                    "manifest": str(manifest_path),
+                }
+            )
+            logger.info(
+                "Q4 export complete for target vehicles=%d: selected K=%d (mode=%s, proxy=%.3f), matrices=%d, manifest=%s",
+                target_v,
+                selected_k,
+                k_selection_mode,
+                selected_proxy_time,
+                len(entries),
+                manifest_path,
+            )
+
+        if latest_manifest is None:
+            raise RuntimeError(
+                "Q4 export aborted: no manifests generated in vehicle-driven mode. "
+                f"Reachable counts in K=[{k_search_min},{k_search_max}] are {reachable_counts}."
+            )
+
+        sweep_manifest = {
             "problem": "q4",
-            "type": "decomposed_vehicles",
+            "type": "decomposed_vehicles_sweep",
             "output_model": output_model,
-            "n_parts": len(entries),
-            "entries": entries,
+            "k_selection_mode": str(k_selection_mode),
+            "strict_target_match": bool(strict_target_match),
+            "reachable_vehicle_counts": [int(x) for x in reachable_counts],
+            "missing_targets": [int(x) for x in missing_targets],
+            "targets": batch,
         }
-        manifest_path = qubo_dir / "q4_export_manifest.json"
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
-        logger.info("Q4 export complete: %d vehicle matrices, manifest=%s", len(entries), manifest_path)
-        return manifest_path
+        sweep_manifest_path = qubo_dir / "q4_export_manifest_vehicle_sweep.json"
+        with open(sweep_manifest_path, "w", encoding="utf-8") as f:
+            json.dump(sweep_manifest, f, ensure_ascii=False, indent=2)
+
+        latest_alias = qubo_dir / "q4_export_manifest.json"
+        with open(latest_alias, "w", encoding="utf-8") as f:
+            with open(latest_manifest, "r", encoding="utf-8") as src:
+                json.dump(json.load(src), f, ensure_ascii=False, indent=2)
+        logger.info(
+            "Q4 vehicle-driven export complete: requested=%s, exported=%d, missing=%s, "
+            "sweep manifest=%s (latest alias=%s -> %s)",
+            target_counts,
+            len(batch),
+            missing_targets,
+            sweep_manifest_path,
+            latest_alias,
+            latest_manifest,
+        )
+        return sweep_manifest_path
     else:
         raise ValueError("QUBO export supports q1/q2/q3/q4 only.")
 
@@ -1309,8 +1597,8 @@ def _adapt_qubo_for_8bit(
     - mutate: Kaiwu dynamic-range mutation adaptation
     - split: Kaiwu variable split (increases variable count)
     """
-    method = str(export_cfg.get("precision_method", "truncate")).lower()
-    output_model = str(export_cfg.get("output_model", "qubo")).lower()
+    method = str(export_cfg.get("precision_method", "truncate")).strip().lower()
+    output_model = str(export_cfg.get("output_model", "qubo")).strip().lower()
     target_bits = _as_int(export_cfg.get("target_bits"), 8)
     int_limit = max(1, 2 ** (target_bits - 1) - 1)
     q_work = np.asarray(q, dtype=float)
@@ -1416,10 +1704,25 @@ def _adapt_qubo_for_8bit(
             q_adapt = q_work.copy()
         meta["method"] = "fallback-linear"
 
+    # Standard Ising upload requires a symmetric, zero-diagonal matrix.
+    if output_model == "ising":
+        q_adapt = _standardize_ising_matrix(q_adapt)
+        meta["ising_standardized"] = True
+
     # Final integer projection for hardware upload compatibility.
     q_int = np.rint(q_adapt)
     q_int = np.clip(q_int, -int_limit - 1, int_limit)
     return q_int.astype(int), meta
+
+
+def _standardize_ising_matrix(mat: np.ndarray) -> np.ndarray:
+    """Project a matrix to standard Ising form: symmetric with zero diagonal."""
+    m = np.asarray(mat, dtype=float)
+    if m.ndim != 2 or m.shape[0] != m.shape[1]:
+        raise ValueError(f"Ising matrix must be square, got shape={m.shape}")
+    m = 0.5 * (m + m.T)
+    np.fill_diagonal(m, 0.0)
+    return m
 
 
 def _adapt_qubo_mutate_via_ising_aux(
@@ -2009,7 +2312,19 @@ def run_q4_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
     )
 
     result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
-    save_metrics_csv(metrics, result_dir / "q4_result_cpqc550.csv")
+    result_csv = result_dir / "q4_result_cpqc550.csv"
+    save_metrics_csv(metrics, result_csv)
+    _append_multi_result_summary_csv(result_csv, metrics, include_routes=True)
+
+    per_k_path = result_dir / "q4_vehicles_cpqc550.csv"
+    per_k_path.parent.mkdir(parents=True, exist_ok=True)
+    per_k_path.write_text("", encoding="utf-8")
+    _append_q4_k_snapshot(
+        per_k_path,
+        int(metrics["n_vehicles"]),
+        metrics,
+        status="EXTERNAL_SOLUTION",
+    )
     plot_multi_vehicle_routes(
         vehicle_routes,
         graph,

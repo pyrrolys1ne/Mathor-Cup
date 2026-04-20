@@ -16,9 +16,9 @@ solver:
 vehicle:
   capacity: 60              # 单车最大载重
   # 优化模式：weighted(加权目标) | lexicographic(词典序)
-  optimization_mode: weighted
+  optimization_mode: lexicographic
 
-# 问题四总目标：alpha*车辆数 + beta*总运输时间 + gamma*时间窗惩罚
+# 问题四总目标权重（仅在 optimization_mode=weighted 时生效）
 objective:
   alpha: 1.0
   beta: 1.0
@@ -26,20 +26,28 @@ objective:
 
 # 车辆数敏感性分析范围
 sensitivity:
-  min_vehicles: 5
-  max_vehicles: 10
+  min_vehicles: 6
+  max_vehicles: 11
   step: 1
 
 hybrid:
   cluster_method: kmeans
-  n_clusters: 10
+  n_clusters: 6
   sub_solver: kaiwu
   local_search_iter: 500
   seed: 42
 
 # 导出到真机时的资源上限保护
 qubo_export:
-  max_parts: 10
+  vehicle_driven: true      # true: 按目标车辆数导出；false: 按 hybrid.n_clusters 单次导出
+  output_model: ising       # qubo | ising
+  k_search_min: 2           # 车辆驱动导出时，自动搜索 K 的下界
+  k_search_max: 30          # 车辆驱动导出时，自动搜索 K 的上界
+  k_selection_mode: best_proxy # first_hit: 最小K优先；best_proxy: 代理路程最优K
+  precision_method: mutate  # none | truncate | mutate | split
+  target_bits: 8            # split/truncate 适配位宽
+  strict_target_match: false # false: 未命中的目标车辆数跳过继续；true: 任何未命中直接报错
+  max_parts: 20
 
 sa:
   initial_temp: 5000.0
@@ -60,15 +68,15 @@ time_window:
   beta: 20
 
 qubo:
-  penalty_visit: 500
-  penalty_position: 500
-  penalty_tw: 100
-  penalty_capacity: 500
+  penalty_visit: 300
+  penalty_position: 300
+  penalty_tw: 80
+  penalty_capacity: 300
 
 output:
   log_dir: outputs/logs/
   figure_dir: outputs/figures/
   result_dir: outputs/results/
-  qubo_dir: outputs/qubo_ising/
+  qubo_dir: outputs/qubo_ising_temp/
   prescreen_dir: outputs/prescreen/
   log_level: INFO

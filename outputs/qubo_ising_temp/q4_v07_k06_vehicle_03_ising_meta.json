@@ -1,0 +1,17 @@
+{
+  "problem": "q4",
+  "tag": "q4_v07_k06_vehicle_03",
+  "output_model": "ising",
+  "method": "mutate-via-ising-aux",
+  "n_vars_original": 4,
+  "n_vars_exported": 5,
+  "max_abs_original": 600.0,
+  "max_abs_exported": 2.0,
+  "vehicle_index": 3,
+  "n_customers_sub": 1,
+  "customer_ids": [
+    50
+  ],
+  "ising_aux_index": 4,
+  "decode_supported": false
+}
