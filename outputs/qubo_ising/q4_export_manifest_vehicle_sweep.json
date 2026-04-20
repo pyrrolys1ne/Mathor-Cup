@@ -1,7 +1,7 @@
 {
   "problem": "q4",
   "type": "decomposed_vehicles_sweep",
-  "output_model": "qubo",
+  "output_model": "ising",
   "k_selection_mode": "best_proxy",
   "strict_target_match": false,
   "reachable_vehicle_counts": [
@@ -39,7 +39,7 @@
       "selection_mode": "best_proxy",
       "proxy_total_time": 90.0,
       "n_parts": 6,
-      "manifest": "outputs\\qubo_ising\\q4_export_manifest_v06.json"
+      "manifest": "outputs\\qubo_ising_temp\\q4_export_manifest_v06.json"
     },
     {
       "target_vehicles": 7,
@@ -47,7 +47,7 @@
       "selection_mode": "best_proxy",
       "proxy_total_time": 87.0,
       "n_parts": 7,
-      "manifest": "outputs\\qubo_ising\\q4_export_manifest_v07.json"
+      "manifest": "outputs\\qubo_ising_temp\\q4_export_manifest_v07.json"
     },
     {
       "target_vehicles": 8,
@@ -55,7 +55,7 @@
       "selection_mode": "best_proxy",
       "proxy_total_time": 103.0,
       "n_parts": 8,
-      "manifest": "outputs\\qubo_ising\\q4_export_manifest_v08.json"
+      "manifest": "outputs\\qubo_ising_temp\\q4_export_manifest_v08.json"
     },
     {
       "target_vehicles": 9,
@@ -63,7 +63,7 @@
       "selection_mode": "best_proxy",
       "proxy_total_time": 103.0,
       "n_parts": 9,
-      "manifest": "outputs\\qubo_ising\\q4_export_manifest_v09.json"
+      "manifest": "outputs\\qubo_ising_temp\\q4_export_manifest_v09.json"
     },
     {
       "target_vehicles": 10,
@@ -71,7 +71,7 @@
       "selection_mode": "best_proxy",
       "proxy_total_time": 110.0,
       "n_parts": 10,
-      "manifest": "outputs\\qubo_ising\\q4_export_manifest_v10.json"
+      "manifest": "outputs\\qubo_ising_temp\\q4_export_manifest_v10.json"
     },
     {
       "target_vehicles": 11,
@@ -79,7 +79,7 @@
       "selection_mode": "best_proxy",
       "proxy_total_time": 115.0,
       "n_parts": 11,
-      "manifest": "outputs\\qubo_ising\\q4_export_manifest_v11.json"
+      "manifest": "outputs\\qubo_ising_temp\\q4_export_manifest_v11.json"
     }
   ]
 }

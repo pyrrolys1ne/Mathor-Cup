@@ -2,14 +2,20 @@
   "problem": "q4",
   "tag": "q4_v07_k06_vehicle_03",
   "output_model": "qubo",
-  "method": "truncate",
+  "method": "split",
   "n_vars_original": 4,
   "n_vars_exported": 4,
-  "max_abs_original": 1000.0,
-  "max_abs_exported": 128.0,
+  "max_abs_original": 600.0,
+  "max_abs_exported": 127.0,
   "vehicle_index": 3,
   "n_customers_sub": 1,
   "customer_ids": [
     50
+  ],
+  "split_last_idx": [
+    0,
+    1,
+    2,
+    3
   ]
 }

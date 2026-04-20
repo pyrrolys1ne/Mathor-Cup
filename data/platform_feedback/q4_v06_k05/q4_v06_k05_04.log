@@ -1,0 +1,1 @@
+[{"result": 0, "Hamiltonian": -5414.0, "solutionVector": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}, {"result": 1, "Hamiltonian": -3350.0, "solutionVector": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]}, {"result": 2, "Hamiltonian": -1302.0, "solutionVector": [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0]}]

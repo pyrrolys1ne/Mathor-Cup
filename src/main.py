@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -1995,35 +1996,105 @@ def _collect_q3_solution_files(solution_path: str | Path, n_parts: int) -> list[
     return candidates
 
 
-def _collect_q4_solution_files(solution_path: str | Path, n_parts: int) -> list[Path]:
+def _collect_q4_solution_files(
+    solution_path: str | Path,
+    n_parts: int,
+    qubo_dir: Path | None = None,
+) -> list[Path]:
     """Collect Q4 feedback files for decomposed vehicle sub-problems."""
     p = Path(solution_path)
 
+    def _extract_vk(text: str) -> tuple[int | None, int | None]:
+        m = re.search(r"q4_v(\d+)_k(\d+)", text.lower())
+        if not m:
+            return None, None
+        return int(m.group(1)), int(m.group(2))
+
+    def _extract_idx(fp: Path) -> int:
+        m = re.search(r"_(\d+)$", fp.stem)
+        return int(m.group(1)) if m else 10**9
+
+    def _dedup_sort(files: list[Path]) -> list[Path]:
+        uniq_map: dict[Path, Path] = {}
+        for fp in files:
+            uniq_map[fp] = fp
+        return sorted(
+            uniq_map.keys(),
+            key=lambda x: (_extract_idx(x), x.name.lower()),
+        )
+
     def _glob_runs(folder: Path) -> list[Path]:
         files: list[Path] = []
-        for pat in ("q4_run_*.log", "q4_run_*.json", "q4_run_*.txt", "q4_run_*.csv"):
+        for pat in (
+            "q4_run_*.log",
+            "q4_run_*.json",
+            "q4_run_*.txt",
+            "q4_run_*.csv",
+            "q4_v*_k*_*.log",
+            "q4_v*_k*_*.json",
+            "q4_v*_k*_*.txt",
+            "q4_v*_k*_*.csv",
+        ):
             files.extend(sorted(folder.glob(pat)))
-        uniq: list[Path] = []
-        seen: set[Path] = set()
-        for fp in sorted(files):
-            if fp not in seen:
-                uniq.append(fp)
-                seen.add(fp)
-        return uniq
+        return _dedup_sort(files)
+
+    def _pick_vk_subdir(base: Path) -> Path | None:
+        vk_dirs = [x for x in sorted(base.iterdir()) if x.is_dir() and re.match(r"q4_v\d+_k\d+$", x.name.lower())]
+        if not vk_dirs:
+            return None
+
+        target_v: int | None = None
+        selected_k: int | None = None
+        try:
+            if qubo_dir is not None:
+                manifest_path = qubo_dir / "q4_export_manifest.json"
+                if manifest_path.exists():
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    tv = manifest.get("target_vehicles")
+                    sk = manifest.get("selected_k")
+                    target_v = int(tv) if tv is not None else None
+                    selected_k = int(sk) if sk is not None else None
+        except Exception as exc:
+            logger.warning("Q4 feedback folder selection fallback due to manifest parse error: %s", exc)
+
+        if target_v is not None and selected_k is not None:
+            exact = f"q4_v{target_v:02d}_k{selected_k:02d}".lower()
+            for d in vk_dirs:
+                if d.name.lower() == exact:
+                    return d
+
+        scored: list[tuple[tuple[int, int, int], Path]] = []
+        for d in vk_dirs:
+            v, k = _extract_vk(d.name)
+            if v is None or k is None:
+                continue
+            dv = abs(v - n_parts)
+            dk = abs((selected_k if selected_k is not None else n_parts) - k)
+            scored.append(((dv, dk, v), d))
+
+        if scored:
+            scored.sort(key=lambda x: x[0])
+            return scored[0][1]
+        return vk_dirs[0]
 
     if p.is_dir():
-        candidates = _glob_runs(p)
+        chosen_subdir = _pick_vk_subdir(p)
+        if chosen_subdir is not None:
+            candidates = _glob_runs(chosen_subdir)
+            logger.info("Q4 feedback auto-selected folder: %s", chosen_subdir)
+        else:
+            candidates = _glob_runs(p)
     else:
         if n_parts <= 1:
             return [p]
         candidates = _glob_runs(p.parent)
         if p not in candidates:
-            candidates = [p] + candidates
+            candidates = _dedup_sort([p] + candidates)
 
     if len(candidates) < n_parts:
         raise RuntimeError(
             f"Insufficient Q4 feedback files: need {n_parts}, found {len(candidates)}. "
-            f"Place q4_run_*.log under {p if p.is_dir() else p.parent}."
+            f"Place q4_run_*.log or q4_vXX_kYY_*.log under {p if p.is_dir() else p.parent}."
         )
     if len(candidates) > n_parts:
         logger.warning(
@@ -2252,7 +2323,7 @@ def run_q4_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
     if not isinstance(entries, list) or not entries:
         raise RuntimeError(f"Q4 manifest has no entries: {manifest_path}")
 
-    solution_files = _collect_q4_solution_files(solution_path, len(entries))
+    solution_files = _collect_q4_solution_files(solution_path, len(entries), qubo_dir=qubo_dir)
     logger.info("Q4 external-solution: using %d feedback files.", len(solution_files))
 
     vehicle_routes: list[list[int]] = []

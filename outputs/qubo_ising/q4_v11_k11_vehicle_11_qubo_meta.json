@@ -2,16 +2,34 @@
   "problem": "q4",
   "tag": "q4_v11_k11_vehicle_11",
   "output_model": "qubo",
-  "method": "truncate",
+  "method": "split",
   "n_vars_original": 16,
-  "n_vars_exported": 16,
-  "max_abs_original": 1000.0,
-  "max_abs_exported": 128.0,
+  "n_vars_exported": 64,
+  "max_abs_original": 600.0,
+  "max_abs_exported": 64.0,
   "vehicle_index": 11,
   "n_customers_sub": 3,
   "customer_ids": [
     4,
     25,
     39
+  ],
+  "split_last_idx": [
+    3,
+    7,
+    11,
+    15,
+    19,
+    23,
+    27,
+    31,
+    35,
+    39,
+    43,
+    47,
+    51,
+    55,
+    59,
+    63
   ]
 }
