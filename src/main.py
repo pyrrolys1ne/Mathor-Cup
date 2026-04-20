@@ -2302,100 +2302,237 @@ def run_q4_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
     output_cfg = cfg["output"]
     qubo_cfg = cfg.get("qubo", {})
     tw_cfg = cfg.get("time_window", {})
+    obj_cfg = cfg.get("objective", {})
     hybrid_cfg = cfg.get("hybrid", {})
     vehicle_cfg = cfg.get("vehicle", {})
     alpha = tw_cfg.get("alpha", 10.0)
     beta = tw_cfg.get("beta", 20.0)
+    optimization_mode = str(vehicle_cfg.get("optimization_mode", "lexicographic")).lower()
+    weight_vehicle = _as_float(obj_cfg.get("alpha", 1.0), 1.0)
+    weight_travel = _as_float(obj_cfg.get("beta", 1.0), 1.0)
+    weight_penalty = _as_float(obj_cfg.get("gamma", 1.0), 1.0)
     vehicle_capacity, cap_source = _resolve_vehicle_capacity(cfg, fallback=100.0)
     local_iter = _as_int(hybrid_cfg.get("local_search_iter"), 500)
+
+    if optimization_mode not in {"lexicographic", "weighted"}:
+        logger.warning(
+            "Unknown optimization_mode=%s for Q4 external solution, fallback to lexicographic.",
+            optimization_mode,
+        )
+        optimization_mode = "lexicographic"
 
     logger.info("Q4 vehicle capacity=%.4f (source=%s)", float(vehicle_capacity), cap_source)
 
     qubo_dir = Path(output_cfg.get("qubo_dir", "outputs/qubo_ising"))
     manifest_path = qubo_dir / "q4_export_manifest.json"
     if not manifest_path.exists():
-        raise RuntimeError(
-            f"Q4 manifest not found: {manifest_path}. Run --phase export for q4 first."
-        )
+        fallback_qubo_dir = Path("outputs/qubo_ising")
+        fallback_manifest_path = fallback_qubo_dir / "q4_export_manifest.json"
+        if fallback_manifest_path.exists():
+            logger.warning(
+                "Q4 manifest not found in configured qubo_dir=%s; fallback to %s",
+                qubo_dir,
+                fallback_qubo_dir,
+            )
+            qubo_dir = fallback_qubo_dir
+            manifest_path = fallback_manifest_path
+        else:
+            raise RuntimeError(
+                f"Q4 manifest not found: {manifest_path}. Run --phase export for q4 first."
+            )
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    entries = manifest.get("entries", [])
-    if not isinstance(entries, list) or not entries:
-        raise RuntimeError(f"Q4 manifest has no entries: {manifest_path}")
+    def _manifest_for_folder(folder: Path) -> Path:
+        m = re.search(r"q4_v(\d+)_k(\d+)$", folder.name.lower())
+        if m:
+            v = int(m.group(1))
+            candidate = qubo_dir / f"q4_export_manifest_v{v:02d}.json"
+            if candidate.exists():
+                return candidate
+        return manifest_path
 
-    solution_files = _collect_q4_solution_files(solution_path, len(entries), qubo_dir=qubo_dir)
-    logger.info("Q4 external-solution: using %d feedback files.", len(solution_files))
+    def _decode_one_batch(batch_folder: Path, manifest_file: Path) -> tuple[dict[str, object], list[list[int]]]:
+        def _resolve_entry_path(path_value: str) -> Path:
+            raw = Path(str(path_value))
+            if raw.is_absolute() and raw.exists():
+                return raw
 
-    vehicle_routes: list[list[int]] = []
-    for i, (entry, sol_file) in enumerate(zip(entries, solution_files), start=1):
-        meta_path = Path(str(entry.get("meta", "")))
-        if not meta_path.is_absolute():
-            meta_path = (Path.cwd() / meta_path).resolve()
-        if not meta_path.exists():
-            raise RuntimeError(f"Q4 subproblem meta not found: {meta_path}")
+            candidates: list[Path] = []
+            candidates.append((Path.cwd() / raw).resolve())
+            candidates.append((manifest_file.parent / raw.name).resolve())
+            candidates.append((qubo_dir / raw.name).resolve())
+            candidates.append((Path("outputs/qubo_ising") / raw.name).resolve())
 
-        sub_meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        customer_ids = [int(x) for x in sub_meta.get("customer_ids", [])]
-        if not customer_ids:
-            raise RuntimeError(f"Missing customer_ids in meta: {meta_path}")
+            seen: set[Path] = set()
+            uniq_candidates: list[Path] = []
+            for c in candidates:
+                if c not in seen:
+                    uniq_candidates.append(c)
+                    seen.add(c)
 
-        qr, sub = build_vehicle_qubo(
-            graph,
-            customer_ids,
-            penalty_visit=qubo_cfg.get("penalty_visit", 500),
-            penalty_position=qubo_cfg.get("penalty_position", 500),
-        )
+            for c in uniq_candidates:
+                if c.exists():
+                    return c
 
-        vectors = _load_solution_vectors_from_log(sol_file, qr.n_vars, meta_path)
-        if vectors is None:
-            vectors = [_load_solution_vector(sol_file, qr.n_vars, meta_path)]
+            return (Path.cwd() / raw).resolve()
 
-        best_route: list[int] | None = None
-        best_obj = float("inf")
-        for vec in vectors:
-            customers = decode_sub_route(vec, sub, qr)
-            if len(customers) >= 3:
-                customers = two_opt(customers, graph, n_iter=max(60, local_iter // 6))
-            cand_route = [graph.depot_id] + customers + [graph.depot_id]
-            m = single_route_metrics(cand_route, graph, alpha=alpha, beta=beta)
-            if float(m["objective"]) < best_obj:
-                best_obj = float(m["objective"])
-                best_route = cand_route
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        entries = manifest.get("entries", [])
+        if not isinstance(entries, list) or not entries:
+            raise RuntimeError(f"Q4 manifest has no entries: {manifest_file}")
 
-        if best_route is None:
-            raise RuntimeError(f"No decodable candidate found for Q4 subproblem {i} from {sol_file}")
-        vehicle_routes.append(best_route)
+        solution_files = _collect_q4_solution_files(batch_folder, len(entries), qubo_dir=qubo_dir)
         logger.info(
-            "Q4 subproblem %d/%d decoded from %s, best_obj=%.4f",
-            i,
-            len(entries),
-            sol_file,
-            best_obj,
+            "Q4 external-solution batch=%s, manifest=%s, feedback_files=%d",
+            batch_folder,
+            manifest_file,
+            len(solution_files),
         )
 
-    metrics = multi_vehicle_metrics(vehicle_routes, graph, vehicle_capacity, alpha, beta)
-    logger.info(
-        "Q4 external-solution result: K=%d, obj=%.4f (travel=%.4f, penalty=%.4f)",
-        metrics["n_vehicles"],
-        metrics["objective"],
-        metrics["total_travel_time"],
-        metrics["total_penalty"],
-    )
+        vehicle_routes: list[list[int]] = []
+        for i, (entry, sol_file) in enumerate(zip(entries, solution_files), start=1):
+            meta_path = _resolve_entry_path(str(entry.get("meta", "")))
+            if not meta_path.exists():
+                raise RuntimeError(f"Q4 subproblem meta not found: {meta_path}")
+
+            sub_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            customer_ids = [int(x) for x in sub_meta.get("customer_ids", [])]
+            if not customer_ids:
+                raise RuntimeError(f"Missing customer_ids in meta: {meta_path}")
+
+            qr, sub = build_vehicle_qubo(
+                graph,
+                customer_ids,
+                penalty_visit=qubo_cfg.get("penalty_visit", 500),
+                penalty_position=qubo_cfg.get("penalty_position", 500),
+            )
+
+            vectors = _load_solution_vectors_from_log(sol_file, qr.n_vars, meta_path)
+            if vectors is None:
+                vectors = [_load_solution_vector(sol_file, qr.n_vars, meta_path)]
+
+            best_route: list[int] | None = None
+            best_obj = float("inf")
+            for vec in vectors:
+                customers = decode_sub_route(vec, sub, qr)
+                if len(customers) >= 3:
+                    customers = two_opt(customers, graph, n_iter=max(60, local_iter // 6))
+                cand_route = [graph.depot_id] + customers + [graph.depot_id]
+                m = single_route_metrics(cand_route, graph, alpha=alpha, beta=beta)
+                if float(m["objective"]) < best_obj:
+                    best_obj = float(m["objective"])
+                    best_route = cand_route
+
+            if best_route is None:
+                raise RuntimeError(
+                    f"No decodable candidate found for Q4 subproblem {i} from {sol_file}"
+                )
+            vehicle_routes.append(best_route)
+            logger.info(
+                "Q4 batch %s subproblem %d/%d decoded from %s, best_obj=%.4f",
+                batch_folder.name,
+                i,
+                len(entries),
+                sol_file,
+                best_obj,
+            )
+
+        metrics = multi_vehicle_metrics(vehicle_routes, graph, vehicle_capacity, alpha, beta)
+        return metrics, vehicle_routes
+
+    solution_source = Path(solution_path)
+    batch_dirs: list[Path] = []
+    if solution_source.is_dir():
+        batch_dirs = [
+            d
+            for d in sorted(solution_source.iterdir())
+            if d.is_dir() and re.match(r"q4_v\d+_k\d+$", d.name.lower())
+        ]
+    if not batch_dirs:
+        batch_dirs = [solution_source]
 
     result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
-    result_csv = result_dir / "q4_result_cpqc550.csv"
-    save_metrics_csv(metrics, result_csv)
-    _append_multi_result_summary_csv(result_csv, metrics, include_routes=True)
-
     per_k_path = result_dir / "q4_vehicles_cpqc550.csv"
     per_k_path.parent.mkdir(parents=True, exist_ok=True)
     per_k_path.write_text("", encoding="utf-8")
-    _append_q4_k_snapshot(
-        per_k_path,
-        int(metrics["n_vehicles"]),
-        metrics,
-        status="EXTERNAL_SOLUTION",
+
+    best_metrics: dict[str, object] | None = None
+    best_vehicle_routes: list[list[int]] | None = None
+    best_key: tuple[int, float, float] | None = None
+    best_score: float | None = None
+    best_batch_name: str | None = None
+    success_count = 0
+
+    for batch in batch_dirs:
+        manifest_for_batch = _manifest_for_folder(batch)
+        try:
+            metrics, vehicle_routes = _decode_one_batch(batch, manifest_for_batch)
+        except Exception as exc:
+            logger.warning("Q4 batch failed: %s (%s)", batch, exc)
+            _append_q4_k_snapshot(
+                per_k_path,
+                0,
+                None,
+                status=f"FAILED {batch.name}: {exc}",
+            )
+            continue
+
+        success_count += 1
+        n_vehicles = int(metrics["n_vehicles"])
+        total_travel = float(metrics["total_travel_time"])
+        total_penalty = float(metrics["total_penalty"])
+        key = (n_vehicles, total_travel, total_penalty)
+        score = (
+            weight_vehicle * n_vehicles
+            + weight_travel * total_travel
+            + weight_penalty * total_penalty
+        )
+
+        logger.info(
+            "Q4 external-solution batch=%s result: K=%d, obj=%.4f (travel=%.4f, penalty=%.4f)",
+            batch.name,
+            metrics["n_vehicles"],
+            metrics["objective"],
+            metrics["total_travel_time"],
+            metrics["total_penalty"],
+        )
+        _append_q4_k_snapshot(
+            per_k_path,
+            int(metrics["n_vehicles"]),
+            metrics,
+            status=f"EXTERNAL_SOLUTION {batch.name}",
+        )
+
+        if optimization_mode == "lexicographic":
+            if best_key is None or key < best_key:
+                best_key = key
+                best_score = score
+                best_metrics = metrics
+                best_vehicle_routes = vehicle_routes
+                best_batch_name = batch.name
+        else:
+            if best_score is None or score < best_score:
+                best_key = key
+                best_score = score
+                best_metrics = metrics
+                best_vehicle_routes = vehicle_routes
+                best_batch_name = batch.name
+
+    if success_count == 0 or best_metrics is None or best_vehicle_routes is None:
+        raise RuntimeError("Q4 external-solution failed for all feedback batches.")
+
+    metrics = best_metrics
+    vehicle_routes = best_vehicle_routes
+    logger.info(
+        "Q4 external-solution best batch=%s, mode=%s, key=%s, score=%.4f, obj=%.4f",
+        best_batch_name,
+        optimization_mode,
+        best_key,
+        float(best_score) if best_score is not None else float("nan"),
+        float(metrics["objective"]),
     )
+    result_csv = result_dir / "q4_result_cpqc550.csv"
+    save_metrics_csv(metrics, result_csv)
+    _append_multi_result_summary_csv(result_csv, metrics, include_routes=True)
     plot_multi_vehicle_routes(
         vehicle_routes,
         graph,
