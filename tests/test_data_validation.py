@@ -1,7 +1,7 @@
 """
 tests/test_data_validation.py
--------------------------------
-Tests for src/io/validate_data.py and src/io/load_excel.py.
+-----------------------------
+src.io.validate_data 与 src.io.load_excel 的单元测试。
 """
 
 from __future__ import annotations
@@ -18,12 +18,12 @@ from src.io.validate_data import (
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
 def _make_nodes(n_customers: int = 5) -> pd.DataFrame:
-    """Create a minimal valid nodes DataFrame with n_customers + 1 rows."""
+    """构造最小可用节点表，包含 n_customers 加 1 行。"""
     rows = []
     n = n_customers + 1
     for i in range(n):
@@ -42,7 +42,7 @@ def _make_nodes(n_customers: int = 5) -> pd.DataFrame:
 
 
 def _make_travel_time(n: int) -> np.ndarray:
-    """Create a valid n×n travel-time matrix."""
+    """构造合法的 n 乘 n 旅行时间矩阵。"""
     rng = np.random.default_rng(0)
     tt = rng.uniform(1, 20, size=(n, n)).astype(float)
     np.fill_diagonal(tt, 0.0)
@@ -50,7 +50,7 @@ def _make_travel_time(n: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Happy-path tests
+# 正常路径测试
 # ---------------------------------------------------------------------------
 
 
@@ -78,7 +78,7 @@ class TestValidateInstanceHappy:
 
 
 # ---------------------------------------------------------------------------
-# Error-detection tests
+# 错误检测测试
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +93,7 @@ class TestValidateInstanceErrors:
 
     def test_duplicate_ids(self):
         nodes = _make_nodes(3)
-        nodes.loc[2, "node_id"] = 1  # duplicate
+        nodes.loc[2, "node_id"] = 1  # 重复编号
         tt = _make_travel_time(4)
         report = validate_instance(nodes, tt)
         assert not report.passed
@@ -101,14 +101,14 @@ class TestValidateInstanceErrors:
 
     def test_non_square_matrix(self):
         nodes = _make_nodes(3)
-        tt = np.zeros((3, 4))  # non-square
+        tt = np.zeros((3, 4))  # 非方阵
         report = validate_instance(nodes, tt)
         assert not report.passed
         assert any("square" in e.lower() for e in report.errors)
 
     def test_wrong_matrix_size(self):
         nodes = _make_nodes(5)
-        tt = _make_travel_time(4)  # wrong size (should be 6)
+        tt = _make_travel_time(4)  # 维度错误
         report = validate_instance(nodes, tt)
         assert not report.passed
         assert any("size" in e.lower() or "match" in e.lower() for e in report.errors)
@@ -132,7 +132,7 @@ class TestValidateInstanceErrors:
     def test_time_window_order(self):
         nodes = _make_nodes(3)
         nodes.loc[1, "e"] = 50.0
-        nodes.loc[1, "l"] = 20.0  # e > l → violation
+        nodes.loc[1, "l"] = 20.0  # e 大于 l
         tt = _make_travel_time(4)
         report = validate_instance(nodes, tt)
         assert not report.passed
@@ -155,7 +155,7 @@ class TestValidateInstanceErrors:
 
 
 # ---------------------------------------------------------------------------
-# Warning tests
+# 告警测试
 # ---------------------------------------------------------------------------
 
 
@@ -163,7 +163,7 @@ class TestValidateInstanceWarnings:
     def test_customer_count_mismatch_is_warning(self):
         nodes = _make_nodes(5)
         tt = _make_travel_time(6)
-        # Expected 3 but actual is 5 → warning, not error
+        # 期望 3 实际 5，仅触发告警
         report = validate_instance(nodes, tt, expected_n_customers=3)
         assert report.passed  # only a warning
         assert len(report.warnings) > 0
@@ -177,7 +177,7 @@ class TestValidateInstanceWarnings:
 
 
 # ---------------------------------------------------------------------------
-# ValidationReport unit tests
+# ValidationReport 单元测试
 # ---------------------------------------------------------------------------
 
 

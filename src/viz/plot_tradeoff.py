@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/viz/plot_tradeoff.py
 -------------------------
 Trade-off and sensitivity analysis plots for Problem 4.
@@ -168,9 +168,10 @@ def plot_objective_comparison(
 
 
 def _save(fig: plt.Figure, path: str | Path) -> None:
-    """Save figure to file."""
+    """保存图像到文件。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     logger.info("Saved figure to %s", path)
     plt.close(fig)
+

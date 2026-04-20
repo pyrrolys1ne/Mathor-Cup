@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/eval/metrics.py
 ---------------------
 Evaluation metrics for logistics optimisation results.
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Single-route metrics
+# 单路径指标
 # ---------------------------------------------------------------------------
 
 
@@ -85,7 +85,7 @@ def single_route_metrics(
 
 
 # ---------------------------------------------------------------------------
-# Multi-vehicle metrics
+# 多车辆指标
 # ---------------------------------------------------------------------------
 
 
@@ -160,7 +160,7 @@ def multi_vehicle_metrics(
 
 
 # ---------------------------------------------------------------------------
-# Export helpers
+# 导出辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -181,10 +181,10 @@ def metrics_to_dataframe(metrics: dict[str, object]) -> pd.DataFrame:
     O(N)
     """
     if "per_node" in metrics:
-        # Single vehicle
+        # 单车辆
         rows = metrics["per_node"]  # type: ignore[index]
     elif "vehicles" in metrics:
-        # Multi vehicle
+        # 多车辆
         rows = []
         for v in metrics["vehicles"]:  # type: ignore[index]
             for rec in v["per_node"]:
@@ -215,3 +215,4 @@ def save_metrics_csv(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False)
     logger.info("Saved metrics CSV to %s", output_path)
+

@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/algorithms/vehicle_assignment.py
 --------------------------------------
 Vehicle assignment strategies for multi-vehicle routing (Q4).
@@ -54,10 +54,10 @@ def assign_customers_to_vehicles(
     O(N)
     """
     if cluster_labels is None:
-        # Greedy split without clusters
+        # 无聚类时使用贪心分组
         return split_route_by_capacity(customer_ids, graph, vehicle_capacity)
 
-    # Group by cluster
+    # 按聚类分组
     cluster_map: dict[int, list[int]] = {}
     for cid, label in zip(customer_ids, cluster_labels):
         cluster_map.setdefault(int(label), []).append(cid)
@@ -101,3 +101,4 @@ def lexicographic_vehicle_min(
     total_demand = sum(graph.demand(cid) for cid in customer_ids)
     import math
     return math.ceil(total_demand / vehicle_capacity)
+

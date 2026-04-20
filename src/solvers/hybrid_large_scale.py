@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/solvers/hybrid_large_scale.py
 -----------------------------------
 Hybrid large-scale solver for Problems 3 and 4 (50 customers).
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Config
+# 配置
 # ---------------------------------------------------------------------------
 
 
@@ -69,7 +69,7 @@ class HybridConfig:
 
 
 # ---------------------------------------------------------------------------
-# Result container
+# 结果结构
 # ---------------------------------------------------------------------------
 
 
@@ -96,7 +96,7 @@ class HybridResult:
 
 
 # ---------------------------------------------------------------------------
-# Main solver
+# 主求解流程
 # ---------------------------------------------------------------------------
 
 
@@ -129,7 +129,7 @@ def solve_hybrid(
 
     customer_ids = graph.customer_ids
 
-    # Step 1: Cluster customers
+    # 第一步 客户聚类
     labels, centres = cluster_customers(
         graph,
         customer_ids,
@@ -138,7 +138,7 @@ def solve_hybrid(
         seed=cfg.seed,
     )
 
-    # Group customers by cluster
+    # 按聚类分组客户
     cluster_map: dict[int, list[int]] = {}
     for cid, label in zip(customer_ids, labels):
         cluster_map.setdefault(int(label), []).append(cid)
@@ -149,18 +149,18 @@ def solve_hybrid(
         {k: len(v) for k, v in sorted(cluster_map.items())},
     )
 
-    # Step 2: Solve each sub-problem
+    # 第二步 求解各子问题
     cluster_routes: list[list[int]] = []
     for cluster_id, cids in sorted(cluster_map.items()):
         sub_route = _solve_subproblem(graph, cids, cfg, cost_fn)
         cluster_routes.append(sub_route)
         logger.debug("Cluster %d route: %s", cluster_id, sub_route)
 
-    # Step 3: Stitch sub-routes into a global route
+    # 第三步 拼接子路径为全局路径
     stitched = _stitch_routes(cluster_routes, graph)
     logger.info("Stitched global route length: %d", len(stitched))
 
-    # Step 4: Local repair (objective-safe acceptance)
+    # 第四步 局部修复并保持目标值可接受
     repaired = list(stitched)
     best_cost = cost_fn(repaired)
 
@@ -176,7 +176,7 @@ def solve_hybrid(
         repaired = cand_or_opt
         best_cost = cand_cost
 
-    # Focused relocate on high late-violation nodes.
+    # 对高迟到节点做定向重定位
     cand_reloc = _late_node_relocate(
         repaired,
         graph,
@@ -202,7 +202,7 @@ def solve_hybrid(
 
 
 # ---------------------------------------------------------------------------
-# Sub-problem solver
+# 子问题求解
 # ---------------------------------------------------------------------------
 
 
@@ -246,7 +246,7 @@ def _solve_subproblem(
         except Exception as exc:
             logger.warning("Kaiwu sub-solver failed (%s); falling back to SA.", exc)
 
-    # SA on permutation space (default / fallback)
+    # 排列空间退火 作为默认与回退
     result = solve_route_sa(customer_ids, cost_fn, cfg.sa_cfg)
     best = result.best_solution
     if len(best) >= 3:
@@ -257,7 +257,7 @@ def _solve_subproblem(
 
 
 # ---------------------------------------------------------------------------
-# Route stitching
+# 路径拼接
 # ---------------------------------------------------------------------------
 
 
@@ -288,15 +288,15 @@ def _stitch_routes(
     if not cluster_routes:
         return []
 
-    # Time-window-aware nearest stitching: distance + lateness-risk score.
+    # 时间窗感知拼接 同时考虑距离与迟到风险
     unvisited = list(range(len(cluster_routes)))
     current_node = graph.depot_id
     current_time = 0.0
     ordered: list[list[int]] = []
 
     while unvisited:
-        # Prefer clusters that are close and whose earliest latest-time is
-        # unlikely to be missed by current ETA.
+        # 优先选择距离近且最早截止时间更稳健的簇
+        # 降低当前到达时间错过截止的概率
         def _score(ci: int) -> float:
             route = cluster_routes[ci]
             if not route:
@@ -327,12 +327,12 @@ def _stitch_routes(
 
         unvisited.remove(best_idx)
 
-    # Flatten
+    # 展平路径
     return [node for sub in ordered for node in sub]
 
 
 def _late_violation_profile(route: list[int], graph: ProblemGraph) -> list[tuple[int, int, float]]:
-    """Return (position, node_id, late_violation) for nodes with late violation."""
+    """返回晚到节点的位置信息与晚到量。"""
     if not route:
         return []
 
@@ -360,7 +360,7 @@ def _late_node_relocate(
     max_nodes: int = 10,
     max_shifts: int = 12,
 ) -> list[int]:
-    """Relocate heavily late nodes earlier if objective improves."""
+    """将晚到严重节点前移，若目标值改善则接受。"""
     if len(route) < 4:
         return list(route)
 
@@ -392,3 +392,4 @@ def _late_node_relocate(
             break
 
     return best
+

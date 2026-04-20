@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/qubo/q1_qubo.py
 --------------------
 QUBO construction for Problem 1:
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Result container
+# 结果结构
 # ---------------------------------------------------------------------------
 
 
@@ -67,7 +67,7 @@ class Q1QUBOResult(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
-# Builder
+# 构造器
 # ---------------------------------------------------------------------------
 
 
@@ -95,10 +95,10 @@ def build_q1_qubo(
     ----------
     O(N³) for H_cost, O(N²) for constraints.
     """
-    n = graph.n_customers + 1  # total nodes (0..N)
+    n = graph.n_customers + 1  # 节点总数 含仓库
     n_vars = n * n
 
-    # Variable index function: node i at position p → flat index
+    # 变量索引函数 将节点与位置映射为扁平索引
     def var_idx(node_id: int, position: int) -> int:
         """Map (node_id, position) pair to flat QUBO variable index.
 
@@ -123,27 +123,27 @@ def build_q1_qubo(
         penalty_position,
     )
 
-    # H_visit: each node visited exactly once
+    # 访问约束 每个节点恰好访问一次
     q_visit: QDict = {}
     for i in range(n):
         indices = [var_idx(i, p) for p in range(n)]
         partial = one_hot_penalty(indices, penalty_visit)
         q_visit = merge_qdicts(q_visit, partial)
 
-    # H_position: each position occupied by exactly one node
+    # 位置约束 每个位置恰好由一个节点占据
     q_position: QDict = {}
     for p in range(n):
         indices = [var_idx(i, p) for i in range(n)]
         partial = one_hot_penalty(indices, penalty_position)
         q_position = merge_qdicts(q_position, partial)
 
-    # H_cost: minimise total travel time
+    # 成本项 最小化总行驶时间
     q_cost = route_cost_penalty(graph.travel_time, n, var_idx)
 
-    # Merge
+    # 合并
     q_total = merge_qdicts(q_visit, q_position, q_cost)
 
-    # Convert to dense matrix
+    # 转换为稠密矩阵
     Q = qdict_to_matrix(q_total, n_vars)
 
     logger.debug(
@@ -155,7 +155,7 @@ def build_q1_qubo(
 
 
 # ---------------------------------------------------------------------------
-# Decoder
+# 解码器
 # ---------------------------------------------------------------------------
 
 
@@ -200,24 +200,25 @@ def decode_q1_solution(
                 else:
                     route_positions[node_id] = pos
 
-    # Check all nodes assigned
+    # 检查是否全部分配
     missing = [i for i in range(n) if i not in route_positions]
     if missing:
         logger.warning("Nodes with no position assignment: %s (decoding best-effort)", missing)
-        # Assign missing nodes to leftover positions
+        # 将缺失节点分配到剩余位置
         used_positions = set(route_positions.values())
         free_positions = [p for p in range(n) if p not in used_positions]
         for node_id, pos in zip(missing, free_positions):
             route_positions[node_id] = pos
 
-    # Build ordered route from position assignments
+    # 根据位置分配构造有序路径
     ordered = sorted(route_positions.keys(), key=lambda nid: route_positions[nid])
 
-    # Depot must be first; rotate if needed
+    # 仓库点必须位于首位，必要时执行旋转
     if ordered and ordered[0] != 0:
         depot_idx = ordered.index(0)
         ordered = ordered[depot_idx:] + ordered[:depot_idx]
 
-    # Return closed route: depot at start and end
+    # 返回闭合路径 首尾均为仓库
     route = ordered + [0]
     return route
+

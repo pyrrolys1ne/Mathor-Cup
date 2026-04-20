@@ -1,17 +1,17 @@
-"""
+﻿"""
 src/io/validate_data.py
 ------------------------
-Robust data validation for the loaded problem instance.
+加载实例后的数据校验模块。
 
-Checks performed:
-  - Missing values in node attributes
-  - Duplicate node IDs
-  - Travel-time matrix dimensions (must be square, N+1 × N+1)
-  - Diagonal elements are zero
-  - All travel times are non-negative
-  - Integer consistency (node IDs, demands)
-  - Time-window logical ordering (e_i <= l_i)
-  - Demand non-negativity
+主要检查项:
+    - 节点属性缺失值
+    - 节点编号重复
+    - 旅行时间矩阵维度是否为 N+1 乘 N+1
+    - 对角线是否为零
+    - 旅行时间是否非负
+    - node_id 与 demand 整数一致性
+    - 时间窗是否满足 e_i 小于等于 l_i
+    - 需求量是否非负
 """
 
 from __future__ import annotations
@@ -26,13 +26,13 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Validation result container
+# 校验结果结构
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class ValidationReport:
-    """Holds results of a single validation run.
+    """保存一次校验的结果。
 
     Attributes
     ----------
@@ -52,18 +52,18 @@ class ValidationReport:
     stats: dict[str, Any] = field(default_factory=dict)
 
     def add_error(self, msg: str) -> None:
-        """Record a critical error and mark report as failed."""
+        """记录关键错误并标记校验失败。"""
         self.errors.append(msg)
         self.passed = False
         logger.error("Validation ERROR: %s", msg)
 
     def add_warning(self, msg: str) -> None:
-        """Record a non-critical warning."""
+        """记录非关键告警。"""
         self.warnings.append(msg)
         logger.warning("Validation WARNING: %s", msg)
 
     def summary(self) -> str:
-        """Return a human-readable summary string."""
+        """返回可读的校验摘要文本。"""
         lines = [
             f"Validation {'PASSED' if self.passed else 'FAILED'}",
             f"  Errors   : {len(self.errors)}",
@@ -80,7 +80,7 @@ class ValidationReport:
 
 
 # ---------------------------------------------------------------------------
-# Main validator
+# 主校验流程
 # ---------------------------------------------------------------------------
 
 
@@ -116,40 +116,40 @@ def validate_instance(
     n_nodes = len(nodes)
     n_customers = n_nodes - 1
 
-    # --- Basic stats -------------------------------------------------------
+    # 基础统计
     report.stats["n_nodes_total"] = n_nodes
     report.stats["n_customers"] = n_customers
     report.stats["matrix_shape"] = travel_time.shape
 
-    # 1. Missing values ------------------------------------------------------
+    # 1 缺失值
     _check_missing_values(nodes, report)
 
-    # 2. Duplicate node IDs --------------------------------------------------
+    # 2 重复节点编号
     _check_duplicate_ids(nodes, report)
 
-    # 3. Correct node ID range (0..N) ----------------------------------------
+    # 3 节点编号范围
     _check_node_id_range(nodes, n_nodes, report)
 
-    # 4. Matrix dimensions ---------------------------------------------------
+    # 4 矩阵维度
     _check_matrix_dimensions(travel_time, n_nodes, report)
 
-    # 5. Diagonal zeros ------------------------------------------------------
+    # 5 对角线为零
     _check_diagonal_zeros(travel_time, report)
 
-    # 6. Non-negativity of travel times --------------------------------------
+    # 6 旅行时间非负
     _check_non_negative(travel_time, report)
 
-    # 7. Time-window ordering (e_i <= l_i) -----------------------------------
+    # 7 时间窗顺序
     _check_time_window_order(nodes, report)
 
-    # 8. Demand non-negativity -----------------------------------------------
+    # 8 需求量非负
     _check_demand_non_negative(nodes, report)
 
-    # 9. Expected customer count ---------------------------------------------
+    # 9 客户数与配置一致
     if expected_n_customers is not None:
         _check_customer_count(n_customers, expected_n_customers, report)
 
-    # 10. Integer consistency for node_id and demand -------------------------
+    # 10 整数一致性
     _check_integer_columns(nodes, report)
 
     logger.info(
@@ -192,12 +192,12 @@ def validate_or_raise(
 
 
 # ---------------------------------------------------------------------------
-# Individual checks
+# 逐项检查
 # ---------------------------------------------------------------------------
 
 
 def _check_missing_values(nodes: pd.DataFrame, report: ValidationReport) -> None:
-    """Detect NaN / None values in the node DataFrame."""
+    """检查节点表中的 NaN 与 None。"""
     nan_counts = nodes.isnull().sum()
     cols_with_nan = nan_counts[nan_counts > 0]
     if not cols_with_nan.empty:
@@ -210,7 +210,7 @@ def _check_missing_values(nodes: pd.DataFrame, report: ValidationReport) -> None
 
 
 def _check_duplicate_ids(nodes: pd.DataFrame, report: ValidationReport) -> None:
-    """Ensure node_id values are unique."""
+    """检查 node_id 是否唯一。"""
     if "node_id" not in nodes.columns:
         report.add_error("Column 'node_id' is absent from node DataFrame.")
         return
@@ -224,7 +224,7 @@ def _check_duplicate_ids(nodes: pd.DataFrame, report: ValidationReport) -> None:
 def _check_node_id_range(
     nodes: pd.DataFrame, n_nodes: int, report: ValidationReport
 ) -> None:
-    """Verify node IDs span exactly {0, 1, …, N}."""
+    """检查节点编号是否完整覆盖 0 到 N。"""
     if "node_id" not in nodes.columns:
         return
     ids = set(nodes["node_id"].astype(int).tolist())
@@ -240,7 +240,7 @@ def _check_node_id_range(
 def _check_matrix_dimensions(
     travel_time: np.ndarray, n_nodes: int, report: ValidationReport
 ) -> None:
-    """Assert matrix is square and matches node count."""
+    """检查矩阵为方阵且维度与节点数一致。"""
     r, c = travel_time.shape
     if r != c:
         report.add_error(f"Travel-time matrix is not square: {r}×{c}")
@@ -253,7 +253,7 @@ def _check_matrix_dimensions(
 def _check_diagonal_zeros(
     travel_time: np.ndarray, report: ValidationReport
 ) -> None:
-    """Verify all diagonal entries are zero (no self-travel time)."""
+    """检查对角线是否全部为零。"""
     diag = np.diag(travel_time)
     nonzero = np.where(diag != 0)[0]
     if nonzero.size > 0:
@@ -267,11 +267,11 @@ def _check_diagonal_zeros(
 def _check_non_negative(
     travel_time: np.ndarray, report: ValidationReport
 ) -> None:
-    """Ensure no travel time is negative."""
+    """检查旅行时间是否存在负值。"""
     neg_mask = travel_time < 0
     if neg_mask.any():
         neg_count = int(neg_mask.sum())
-        # Provide a few examples
+        # 给出若干示例
         rows, cols = np.where(neg_mask)
         examples = [(int(r), int(c)) for r, c in zip(rows[:5], cols[:5])]
         report.add_error(
@@ -284,7 +284,7 @@ def _check_non_negative(
 
 
 def _check_time_window_order(nodes: pd.DataFrame, report: ValidationReport) -> None:
-    """Verify e_i <= l_i for every node that has time windows."""
+    """检查每个节点是否满足 e_i 小于等于 l_i。"""
     if "e" not in nodes.columns or "l" not in nodes.columns:
         return
     bad = nodes[nodes["e"] > nodes["l"]]
@@ -298,7 +298,7 @@ def _check_time_window_order(nodes: pd.DataFrame, report: ValidationReport) -> N
 
 
 def _check_demand_non_negative(nodes: pd.DataFrame, report: ValidationReport) -> None:
-    """Ensure demand values are non-negative."""
+    """检查需求量是否非负。"""
     if "demand" not in nodes.columns:
         return
     bad = nodes[nodes["demand"] < 0]
@@ -312,7 +312,7 @@ def _check_demand_non_negative(nodes: pd.DataFrame, report: ValidationReport) ->
 def _check_customer_count(
     actual: int, expected: int, report: ValidationReport
 ) -> None:
-    """Verify the number of customers matches the config expectation."""
+    """检查客户数量是否与配置一致。"""
     if actual != expected:
         report.add_warning(
             f"Config expected {expected} customers, but data has {actual}. "
@@ -323,7 +323,7 @@ def _check_customer_count(
 
 
 def _check_integer_columns(nodes: pd.DataFrame, report: ValidationReport) -> None:
-    """Check that node_id and demand are integer-valued (no fractional parts)."""
+    """检查 node_id 与 demand 是否为整数值。"""
     for col in ("node_id", "demand"):
         if col not in nodes.columns:
             continue
@@ -334,3 +334,4 @@ def _check_integer_columns(nodes: pd.DataFrame, report: ValidationReport) -> Non
                 f"Column '{col}' contains non-integer values "
                 f"(e.g., {non_int.iloc[0]}). Will be cast to int."
             )
+

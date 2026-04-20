@@ -1,16 +1,16 @@
-"""
+﻿"""
 src/main.py
 ------------
-Command-line entry point for the MathorCup 2026 logistics optimisation project.
+MathorCup 2026 物流优化命令行入口。
 
-Usage:
+示例命令:
     python -m src.main --config configs/q1.yaml
     python -m src.main --config configs/q2.yaml
     python -m src.main --config configs/q3.yaml
-    python -m src.main --config configs/q4.yaml [--sensitivity]
+    python -m src.main --config configs/q4.yaml --sensitivity
     python -m src.main --config configs/q4.yaml --phase data
 
-All configuration is driven by the YAML file; CLI flags supplement the config.
+主配置由 YAML 文件控制，命令行参数用于补充运行选项。
 """
 
 from __future__ import annotations
@@ -28,12 +28,12 @@ import numpy as np
 import yaml
 
 # ---------------------------------------------------------------------------
-# Logging setup (must be first before importing project modules)
+# 日志初始化 需先于项目模块导入
 # ---------------------------------------------------------------------------
 
 
 def _setup_logging(log_dir: str, log_level: str, problem: str) -> None:
-    """Configure root logger with file + console handlers."""
+    """初始化根日志，写入控制台和文件。"""
     log_path = Path(log_dir) / f"{problem}_run.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 
 def _as_float(value: Any, default: float) -> float:
-    """Safely coerce config values to float."""
+    """将配置值安全转换为浮点数。"""
     if value is None:
         return float(default)
     try:
@@ -64,7 +64,7 @@ def _as_float(value: Any, default: float) -> float:
 
 
 def _as_int(value: Any, default: int) -> int:
-    """Safely coerce config values to int."""
+    """将配置值安全转换为整数。"""
     if value is None:
         return int(default)
     try:
@@ -75,7 +75,7 @@ def _as_int(value: Any, default: int) -> int:
 
 
 def _resolve_vehicle_capacity(cfg: dict[str, Any], fallback: float = 100.0) -> tuple[float, str]:
-    """Resolve vehicle capacity with Excel-first policy and config fallback."""
+    """按优先读 Excel 的规则解析车辆容量，不存在时回退配置值。"""
     from src.io.load_excel import load_vehicle_capacity
 
     data_cfg = cfg.get("data", {})
@@ -91,7 +91,7 @@ def _resolve_vehicle_capacity(cfg: dict[str, Any], fallback: float = 100.0) -> t
 
 
 # ---------------------------------------------------------------------------
-# Config loader
+# 配置加载
 # ---------------------------------------------------------------------------
 
 
@@ -119,7 +119,7 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Phase runners
+# 阶段执行
 # ---------------------------------------------------------------------------
 
 
@@ -145,8 +145,8 @@ def run_data_phase(cfg: dict[str, Any]) -> tuple:
     )
     n_customers = data_cfg.get("num_customers")
 
-    # Keep experiment scale consistent with config by truncating customers when
-    # the raw file contains a larger instance (e.g., Q1/Q2 config=15, raw=50).
+    # 保持实验规模与配置一致 当原始客户数更大时截断
+    # 典型场景为配置十五个客户而原始数据含五十个客户
     if n_customers is not None:
         expected = int(n_customers)
         actual = len(nodes) - 1
@@ -177,7 +177,7 @@ def run_data_phase(cfg: dict[str, Any]) -> tuple:
 
 
 def _result_paths(output_cfg: dict[str, Any], problem: str, source: str) -> tuple[Path, Path]:
-    """Build source-specific output paths to avoid overwriting by different solvers."""
+    """按来源构造结果路径，避免不同求解器互相覆盖。"""
     result_dir = Path(output_cfg.get("result_dir", "outputs/results"))
     fig_dir = Path(output_cfg["figure_dir"])
     return (
@@ -187,7 +187,7 @@ def _result_paths(output_cfg: dict[str, Any], problem: str, source: str) -> tupl
 
 
 def _append_single_result_summary_csv(result_csv: Path, metrics: dict[str, object]) -> None:
-    """Append a human-readable summary block to the bottom of single-route result CSV."""
+    """在单路线结果 CSV 末尾追加可读汇总。"""
     route = metrics.get("route", [])
     travel = float(metrics.get("total_travel_time", 0.0))
     penalty = float(metrics.get("total_penalty", 0.0))
@@ -215,7 +215,7 @@ def _append_multi_result_summary_csv(
     metrics: dict[str, object],
     include_routes: bool = False,
 ) -> None:
-    """Append a human-readable summary block to a multi-vehicle result CSV."""
+    """在多车辆结果 CSV 末尾追加可读汇总。"""
     lines = [
         "",
         "=" * 50,
@@ -247,7 +247,7 @@ def _append_q4_k_snapshot(
     metrics: dict[str, object] | None,
     status: str = "DONE",
 ) -> None:
-    """Append one K-iteration snapshot for Q4 realtime tracking."""
+    """为 Q4 追加一条 K 迭代快照，便于实时跟踪。"""
     lines = ["", f"K = {k}  [{status}]"]
 
     if metrics is None:
@@ -290,7 +290,7 @@ def _append_q4_k_snapshot(
 
 
 def run_q1(cfg: dict[str, Any], graph) -> None:
-    """Run Problem 1 solver and output results."""
+    """执行问题一求解并输出结果。"""
     from src.algorithms.local_search import two_opt
     from src.eval.metrics import save_metrics_csv, single_route_metrics
     from src.qubo.q1_qubo import build_q1_qubo, decode_q1_solution
@@ -337,7 +337,7 @@ def run_q1(cfg: dict[str, Any], graph) -> None:
                 run_no = run_idx + 1
                 run_t0 = time.perf_counter()
 
-                # For reproducibility, use base seed + run index (no cumulative drift).
+                # 为保证复现实验 使用基础随机种子加轮次
                 if base_seed is not None:
                     kw.seed = int(base_seed) + run_idx
 
@@ -387,13 +387,13 @@ def run_q1(cfg: dict[str, Any], graph) -> None:
             backend = "sa"
 
     if backend == "sa":
-        # Permutation-space SA (more efficient for small instances)
+        # 排列空间退火 适合小规模
         def cost_fn(perm: list[int]) -> float:
             return graph.route_travel_time(perm)
 
         sa_result = solve_route_sa(graph.customer_ids, cost_fn, sa_cfg)
         route = [graph.depot_id] + sa_result.best_solution + [graph.depot_id]
-        # Local search refinement
+        # 局部搜索细化
         improved = two_opt(sa_result.best_solution, graph)
         route = [graph.depot_id] + improved + [graph.depot_id]
 
@@ -418,7 +418,7 @@ def run_q1(cfg: dict[str, Any], graph) -> None:
 
 
 def run_q2(cfg: dict[str, Any], graph) -> None:
-    """Run Problem 2 solver and output results."""
+    """执行问题二求解并输出结果。"""
     from src.algorithms.local_search import two_opt
     from src.eval.metrics import save_metrics_csv, single_route_metrics
     from src.qubo.q1_qubo import decode_q1_solution
@@ -526,7 +526,7 @@ def run_q2(cfg: dict[str, Any], graph) -> None:
 
 
 def run_q3(cfg: dict[str, Any], graph) -> None:
-    """Run Problem 3 hybrid large-scale solver and output results."""
+    """执行问题三混合大规模求解并输出结果。"""
     from src.eval.metrics import save_metrics_csv, single_route_metrics
     from src.solvers.hybrid_large_scale import HybridConfig, solve_hybrid
     from src.solvers.sa_solver import SAConfig
@@ -601,7 +601,7 @@ def run_q3(cfg: dict[str, Any], graph) -> None:
 
 
 def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
-    """Run Problem 4 multi-vehicle solver and optional sensitivity analysis."""
+    """执行问题四多车辆求解，可选运行敏感性分析。"""
     from src.algorithms.vehicle_assignment import assign_customers_to_vehicles, lexicographic_vehicle_min
     from src.algorithms.clustering import cluster_customers
     from src.algorithms.local_search import two_opt
@@ -656,7 +656,7 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
         seed=_as_int(sa_cfg_dict.get("seed"), 42),
     )
 
-    # Solve each vehicle sub-route
+    # 求解每辆车的子路径
     from src.core.time_window import simulate_route_timing
 
     def _solve_group(cids: list[int]) -> list[int]:
@@ -714,8 +714,8 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
     configured_k = _as_int(hybrid_cfg_dict.get("n_clusters"), 5)
     min_k = max(1, lexicographic_vehicle_min(graph.customer_ids, graph, vehicle_capacity))
 
-    # Lexicographic default run should be fast: only search from lower bound to
-    # configured K. Full K sweep belongs to explicit sensitivity analysis.
+    # 词典序默认求解追求速度，仅从下界搜索到设定值
+    # 完整 K 扫描只在显式敏感性分析时执行
     if sensitivity:
         max_k_cfg = _as_int(sens_cfg.get("max_vehicles"), max(min_k, configured_k))
         max_k = max(min_k, configured_k, max_k_cfg)
@@ -859,7 +859,7 @@ def run_q4(cfg: dict[str, Any], graph, sensitivity: bool = False) -> None:
 
     _print_multi_result(metrics, "Q4")
 
-    # Sensitivity analysis
+    # 敏感性分析
     if sensitivity:
         sens_cfg = cfg.get("sensitivity", {})
         min_k = sens_cfg.get("min_vehicles", 2)
@@ -1174,7 +1174,7 @@ def export_qubo_phase(cfg: dict[str, Any], graph) -> Path:
             )
             return manifest_path
 
-        # Vehicle-count-driven export: auto-search a K that produces each target vehicle count.
+        # 车辆数驱动导出 自动搜索可达到目标车辆数的 K
         step = max(1, _as_int(sens_cfg.get("step"), 1))
         min_v = _as_int(sens_cfg.get("min_vehicles"), 5)
         max_v = _as_int(sens_cfg.get("max_vehicles"), min_v)
@@ -1342,17 +1342,17 @@ def _load_solution_vector(
     p = Path(solution_path)
     raw = p.read_text(encoding="utf-8").strip()
 
-    # Platform log JSON mode: [{"quboValue": ..., "solutionVector": [...]}, ...]
+    # 平台日志 JSON 模式
     parsed_from_log = _try_parse_platform_log_solution(raw)
     if parsed_from_log is not None:
         return _normalize_solution_vector(parsed_from_log, n_vars, meta_path)
 
-    # Compact bitstring mode
+    # 紧凑比特串模式
     compact = "".join(ch for ch in raw if ch in {"0", "1"})
     if compact and len(compact) == n_vars and set(compact) <= {"0", "1"}:
         return np.array([1.0 if ch == "1" else 0.0 for ch in compact], dtype=float)
 
-    # Delimited numeric mode
+    # 分隔数字模式
     tokenized = raw.replace(",", " ").replace("\n", " ").split()
     try:
         arr = np.array([float(t) for t in tokenized], dtype=float)
@@ -1389,7 +1389,7 @@ def _normalize_solution_vector(
     n_vars: int,
     meta_path: str | Path | None,
 ) -> np.ndarray:
-    """Normalize external vector to binary QUBO vector with target length n_vars."""
+    """将外部向量规范化为长度为 n_vars 的二进制 QUBO 向量。"""
     vec = np.asarray(arr, dtype=float).reshape(-1)
 
     vec = _maybe_restore_ising_aux_solution(vec, n_vars, meta_path)
@@ -1424,7 +1424,7 @@ def _try_parse_platform_log_solution(raw: str) -> np.ndarray | None:
     if not vectors:
         return None
 
-    # Keep legacy single-vector behavior for callers that expect one vector.
+    # 保持旧接口行为 仍返回单个向量
     records: list[dict[str, Any]] = []
     if isinstance(data, list):
         records = [r for r in data if isinstance(r, dict) and "solutionVector" in r]
@@ -1453,7 +1453,7 @@ def _try_parse_platform_log_solution(raw: str) -> np.ndarray | None:
 
 
 def _try_parse_platform_log_solutions(raw: str) -> list[np.ndarray] | None:
-    """Parse all solution vectors from platform JSON log payload, if present."""
+    """解析平台日志中的全部解向量，不是日志格式时返回空。"""
     if not raw:
         return None
     first = raw[0]
@@ -1482,7 +1482,7 @@ def _try_parse_platform_log_solutions(raw: str) -> list[np.ndarray] | None:
 
 
 def _try_parse_platform_log_solutions(raw: str) -> list[np.ndarray] | None:
-    """Parse all solution vectors from platform JSON log content."""
+    """解析平台日志内容中的全部解向量。"""
     if not raw:
         return None
     first = raw[0]
@@ -1508,7 +1508,7 @@ def _try_parse_platform_log_solutions(raw: str) -> list[np.ndarray] | None:
 
 
 def _ising_spin_to_binary_if_needed(arr: np.ndarray) -> np.ndarray:
-    """Convert Ising spins {-1,+1} to binary {0,1} when detected."""
+    """检测到 Ising 自旋后转换为二进制变量。"""
     a = np.asarray(arr, dtype=float).reshape(-1)
     if a.size == 0:
         return a
@@ -1548,7 +1548,7 @@ def _maybe_restore_ising_aux_solution(
             except Exception:
                 pass
 
-    # Default auxiliary index convention from export path: appended at tail.
+    # 默认辅助位索引放在向量末尾
     return a[:-1]
 
 
@@ -1557,7 +1557,7 @@ def _maybe_restore_split_solution(
     n_vars: int,
     meta_path: str | Path | None,
 ) -> np.ndarray:
-    """Restore split-adapted solution back to original variable size when possible."""
+    """在可恢复时将 split 适配解还原到原始变量维度。"""
     if meta_path is None:
         return arr
     p = Path(meta_path)
@@ -1609,7 +1609,7 @@ def _adapt_qubo_for_8bit(
         import kaiwu as kw
 
         def _call_candidates(candidates: list[str], *args):
-            """Try candidate dotted call paths in order and return first success."""
+            """按顺序尝试候选调用路径并返回首个成功结果。"""
             errs: list[str] = []
             for path in candidates:
                 try:
@@ -1635,7 +1635,7 @@ def _adapt_qubo_for_8bit(
             )
         elif method == "mutate":
             if output_model == "ising":
-                # User explicitly wants Ising output for platform upload.
+                # 用户明确要求导出 Ising 供平台上传
                 q_adapt, aux_meta = _adapt_qubo_mutate_via_ising_aux(
                     q_work,
                     kw,
@@ -1705,19 +1705,19 @@ def _adapt_qubo_for_8bit(
             q_adapt = q_work.copy()
         meta["method"] = "fallback-linear"
 
-    # Standard Ising upload requires a symmetric, zero-diagonal matrix.
+    # 标准 Ising 上传要求矩阵对称且对角为零
     if output_model == "ising":
         q_adapt = _standardize_ising_matrix(q_adapt)
         meta["ising_standardized"] = True
 
-    # Final integer projection for hardware upload compatibility.
+    # 最后投影为整数以兼容硬件上传
     q_int = np.rint(q_adapt)
     q_int = np.clip(q_int, -int_limit - 1, int_limit)
     return q_int.astype(int), meta
 
 
 def _standardize_ising_matrix(mat: np.ndarray) -> np.ndarray:
-    """Project a matrix to standard Ising form: symmetric with zero diagonal."""
+    """将矩阵投影为标准 Ising 形式，对称且对角为零。"""
     m = np.asarray(mat, dtype=float)
     if m.ndim != 2 or m.shape[0] != m.shape[1]:
         raise ValueError(f"Ising matrix must be square, got shape={m.shape}")
@@ -1731,17 +1731,17 @@ def _adapt_qubo_mutate_via_ising_aux(
     kw: Any,
     return_ising: bool,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Apply Kaiwu mutate by converting QUBO -> Ising(with auxiliary spin) -> QUBO.
+    """通过 QUBO 转换到 Ising 辅助位后再转回 QUBO 来执行 mutate。
 
-    This path is used when the SDK does not expose `qubo.perform_precision_adaption_mutate`
-    but does expose `preprocess.perform_precision_adaption_mutate` for zero-diagonal Ising matrices.
+    当 SDK 不提供 qubo.perform_precision_adaption_mutate 时
+    使用 preprocess.perform_precision_adaption_mutate 处理零对角 Ising 矩阵。
     """
     q_upper = np.triu(np.asarray(q, dtype=float))
     n = q_upper.shape[0]
     if q_upper.ndim != 2 or n != q_upper.shape[1]:
         raise ValueError(f"Q must be square, got {q_upper.shape}")
 
-    # Convert QUBO coefficients to Ising h/J (without constant term).
+    # 将 QUBO 系数转换为 Ising 的 h 与 J 不含常数项
     j_mat = np.zeros((n, n), dtype=float)
     for i in range(n):
         for j in range(i + 1, n):
@@ -1754,9 +1754,9 @@ def _adapt_qubo_mutate_via_ising_aux(
             float(np.sum(q_upper[i, i + 1 :])) + float(np.sum(q_upper[:i, i]))
         )
 
-    # Build auxiliary Ising matrix with zero diagonal:
-    # E = sum_{i<j} J_ij s_i s_j + sum_i h_i s_i z, z in {-1, +1}
-    # This removes linear terms for CIM-style zero-diagonal Ising representations.
+    # 构造对角为零的辅助 Ising 矩阵
+    # 能量由二次项与辅助位线性耦合项组成
+    # 这样可消去线性项 适配零对角 Ising 表示
     k = np.zeros((n + 1, n + 1), dtype=float)
     k[:n, :n] = j_mat
     k[:n, n] = h
@@ -1775,7 +1775,7 @@ def _adapt_qubo_mutate_via_ising_aux(
     np.fill_diagonal(j_mut, 0.0)
     h_mut = 0.5 * (k_mut[:n, n] + k_mut[n, :n])
 
-    # Convert Ising h/J back to upper-triangular QUBO matrix.
+    # 将 Ising 的 h 与 J 转回上三角 QUBO 矩阵
     q_back = np.zeros((n, n), dtype=float)
     for i in range(n):
         for j in range(i + 1, n):
@@ -1788,7 +1788,7 @@ def _adapt_qubo_mutate_via_ising_aux(
 
 
 def run_q1_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None:
-    """Decode an external Q1 solution vector and run standard evaluation/output."""
+    """解码外部问题一解向量并执行标准评估输出。"""
     from src.algorithms.local_search import two_opt
     from src.eval.metrics import save_metrics_csv, single_route_metrics
     from src.qubo.q1_qubo import build_q1_qubo, decode_q1_solution
@@ -1870,7 +1870,7 @@ def run_q1_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
 
 
 def run_q2_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None:
-    """Decode an external Q2 solution vector and run standard evaluation/output."""
+    """解码外部问题二解向量并执行标准评估输出。"""
     from src.algorithms.local_search import two_opt
     from src.eval.metrics import save_metrics_csv, single_route_metrics
     from src.qubo.q1_qubo import decode_q1_solution
@@ -1970,7 +1970,7 @@ def _collect_q3_solution_files(solution_path: str | Path, n_parts: int) -> list[
         files: list[Path] = []
         for pat in ("q3_run_*.log", "q3_run_*.json", "q3_run_*.txt", "q3_run_*.csv"):
             files.extend(sorted(folder.glob(pat)))
-        # de-duplicate while preserving sorted order by name
+        # 去重并保持按文件名排序
         uniq: list[Path] = []
         seen: set[Path] = set()
         for fp in sorted(files):
@@ -2001,7 +2001,7 @@ def _collect_q4_solution_files(
     n_parts: int,
     qubo_dir: Path | None = None,
 ) -> list[Path]:
-    """Collect Q4 feedback files for decomposed vehicle sub-problems."""
+    """收集问题四分解子问题的反馈文件。"""
     p = Path(solution_path)
 
     def _extract_vk(text: str) -> tuple[int | None, int | None]:
@@ -2107,7 +2107,7 @@ def _collect_q4_solution_files(
 
 
 def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None:
-    """Decode external Q3 decomposed solutions and evaluate full-route metrics."""
+    """解码外部问题三分解解并评估全局路径指标。"""
     from src.algorithms.local_search import or_opt, two_opt
     from src.algorithms.route_decode import decode_sub_route
     from src.core.graph_model import subgraph
@@ -2159,7 +2159,7 @@ def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
             pool.extend(indexed.get(i, []))
             pool.extend(indexed.get(i + len(entries), []))
             if not pool:
-                # Fallback to positional order if file names do not contain indices.
+                # 文件名无编号时回退为位置顺序
                 if i - 1 < len(solution_files):
                     pool = [solution_files[i - 1]]
                 elif i - 1 < len(unindexed):
@@ -2291,7 +2291,7 @@ def run_q3_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
 
 
 def run_q4_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None:
-    """Decode external Q4 decomposed solutions and evaluate multi-vehicle metrics."""
+    """解码外部问题四分解解并评估多车辆指标。"""
     from src.algorithms.local_search import two_opt
     from src.algorithms.route_decode import decode_sub_route
     from src.eval.metrics import multi_vehicle_metrics, save_metrics_csv, single_route_metrics
@@ -2547,7 +2547,7 @@ def run_q4_from_solution(cfg: dict[str, Any], graph, solution_path: str) -> None
 
 
 # ---------------------------------------------------------------------------
-# Pretty-print helpers
+# 输出格式辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -2581,7 +2581,7 @@ def _print_multi_result(metrics: dict, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# 命令行入口
 # ---------------------------------------------------------------------------
 
 
@@ -2631,7 +2631,7 @@ def cli(config: str, phase: str, sensitivity: bool, solution: str | None) -> Non
     logger.info("Starting %s | config=%s | phase=%s", problem.upper(), config, phase)
     click.echo(f"Running problem {problem.upper()} …")
 
-    # Phase: data
+    # 阶段 数据
     graph, _ = run_data_phase(cfg)
 
     if phase == "data":
@@ -2658,7 +2658,7 @@ def cli(config: str, phase: str, sensitivity: bool, solution: str | None) -> Non
         logger.info("Problem %s complete (external solution).", problem.upper())
         return
 
-    # Phase: solve
+    # 阶段 求解
     problem_runners = {
         "q1": lambda: run_q1(cfg, graph),
         "q2": lambda: run_q2(cfg, graph),
@@ -2675,3 +2675,4 @@ def cli(config: str, phase: str, sensitivity: bool, solution: str | None) -> Non
 
 if __name__ == "__main__":
     cli()
+

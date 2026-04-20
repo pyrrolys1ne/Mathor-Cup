@@ -1,13 +1,13 @@
-"""
+﻿"""
 src/eval/sensitivity.py
--------------------------
-Sensitivity analysis for Problem 4: effect of vehicle count K on objective.
+------------------------
+问题四敏感性分析模块，研究车辆数 K 对目标值的影响。
 
-Sweeps K from min_vehicles to max_vehicles and records:
-  - Total travel time
-  - Total time-window penalty
-  - Combined objective
-  - Capacity feasibility
+在 min_vehicles 到 max_vehicles 范围内扫描 K，记录:
+    - 总旅行时间
+    - 时间窗惩罚总和
+    - 综合目标值
+    - 容量可行性
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ class SensitivityResult:
     best_k: int = 0
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert to pandas DataFrame."""
+        """转换为 pandas DataFrame。"""
         return pd.DataFrame(
             [
                 {
@@ -74,7 +74,7 @@ class SensitivityResult:
         )
 
     def save_csv(self, path: str | Path) -> None:
-        """Save sensitivity data to CSV."""
+        """将敏感性数据保存为 CSV。"""
         df = self.to_dataframe()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,8 +160,9 @@ def run_vehicle_sensitivity(
         except Exception as exc:
             logger.warning("Sensitivity K=%d failed: %s", k, exc)
 
-    # Find best feasible K
+    # 查找可行解中的最优 K
     feasible = [p for p in points if p.capacity_feasible]
     best_k = min(feasible, key=lambda p: p.objective).n_vehicles if feasible else 0
 
     return SensitivityResult(points=points, best_k=best_k)
+

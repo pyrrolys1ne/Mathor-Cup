@@ -1,138 +1,106 @@
-# QUBO 推导说明 / QUBO Derivation
+# QUBO 推导与工程实现说明
 
-## 1. TSP → QUBO（问题1/2/3基础）
+## 变量编码
 
-### 1.1 变量定义
-
-定义二值变量矩阵：
+对单路径子问题采用排列位置编码。
 
 $$
-x_{i,p} \in \{0, 1\}, \quad i \in \{0, 1, \ldots, N\}, \quad p \in \{0, 1, \ldots, N\}
+x_{i,p} \in \{0,1\}
 $$
 
-其中 $x_{i,p} = 1$ 表示节点 $i$ 在路径中的第 $p$ 个位置被访问。
+其中 $x_{i,p}=1$ 表示节点 $i$ 位于路径位置 $p$。
 
-变量总数：$(N+1)^2$（含配送中心）。
+## 基础目标
 
----
-
-### 1.2 约束一：每个节点恰好访问一次
+基础旅行时间项写为。
 
 $$
-H_A = A \sum_{i=0}^{N} \left(1 - \sum_{p=0}^{N} x_{i,p}\right)^2
+H_{travel}=\sum_{i,j}\sum_p T_{ij} x_{i,p}x_{j,p+1}
 $$
 
-展开：
+索引换行按环路处理。
+
+## 硬约束惩罚
+
+### 节点唯一访问
 
 $$
-H_A = A \sum_i \left(1 - 2\sum_p x_{i,p} + \sum_p x_{i,p}^2 + 2\sum_{p < q} x_{i,p} x_{i,q}\right)
+H_{visit}=A\sum_i\left(1-\sum_p x_{i,p}\right)^2
 $$
 
----
-
-### 1.3 约束二：每个位置恰好一个节点
+### 位置唯一占用
 
 $$
-H_B = B \sum_{p=0}^{N} \left(1 - \sum_{i=0}^{N} x_{i,p}\right)^2
+H_{position}=B\sum_p\left(1-\sum_i x_{i,p}\right)^2
 $$
 
----
-
-### 1.4 目标：最小化总旅行时间
+总能量为。
 
 $$
-H_C = \sum_{i=0}^{N} \sum_{j=0}^{N} T_{ij} \sum_{p=0}^{N} x_{i,p} \cdot x_{j,(p+1) \bmod (N+1)}
+H = H_{travel}+H_{visit}+H_{position}
 $$
 
----
+## 问题二与时间窗
 
-### 1.5 完整 QUBO（问题1）
+当前工程实现将时间窗惩罚放在解码评估阶段，不直接写入 QUBO。
 
-$$
-H = H_A + H_B + H_C
-$$
-
-**惩罚系数选择原则**：
+评估目标为。
 
 $$
-A, B \ge \max_{i,j} T_{ij} \times (N+1)
+Obj = Travel + \sum_i penalty_i
 $$
 
-即惩罚系数需大于目标函数的最大可能值，保证可行解严格优于任何违约解。
+## 问题三与问题四分解
 
----
+- q3 对客户聚类后逐簇构造问题一形式 QUBO
+- q4 对每辆车子问题构造问题一形式 QUBO
+- 容量约束主要由分组阶段保证
 
-## 2. 时间窗惩罚嵌入（问题2）
+## 矩阵导出格式
 
-到达时刻 $t_i$ 依赖路径顺序，是路径变量的非线性函数，难以直接编入 QUBO。
-
-### 处理方案
-
-**方案A（软约束近似）**：将时间窗惩罚作为额外目标项，在解码阶段计算，不嵌入QUBO。QUBO 仅优化纯旅行时间，解码后对路径评分加入时间窗惩罚。
-
-**方案B（线性化近似）**：对时间窗违反量引入辅助变量，但变量数大幅增加，不推荐用于大规模问题。
-
-**本项目采用方案A**：
+标准导出形式为上三角 QUBO 矩阵，目标函数写为。
 
 $$
-H_{\text{Q2}} = H_A + H_B + H_C
+\min x^T Q x
 $$
 
-解码后目标值：
+工程中同时保存。
 
-$$
-\text{Obj} = \text{TravelTime} + \sum_i \text{penalty}_i
-$$
+- 原始浮点矩阵
+- 适配后整型矩阵
+- meta 信息
 
----
+## 精度适配策略
 
-## 3. 容量约束嵌入（问题4）
+支持四种方法。
 
-### 3.1 多车变量扩展
+- none 不做精度适配
+- truncate 直接精度调整
+- mutate 动态范围变异
+- split 变量拆分
 
-引入车辆维度：$x_{k,i,p} = 1$ 表示车辆 $k$ 在位置 $p$ 访问节点 $i$。
+当 output_model 为 ising 时，矩阵会投影为。
 
-变量数：$K \times (N+1)^2$，规模较大，通常采用分解策略。
+- 对称矩阵
+- 对角元素为零
 
-### 3.2 容量软约束
+## mutate 兼容路径
 
-$$
-H_D = D \sum_k \max\left(0, \sum_i d_i \cdot \mathbb{1}[i \in \text{route}_k] - Q\right)^2
-$$
+在部分 SDK 缺失 qubo 侧 mutate 接口时，工程支持以下兼容路径。
 
-实践中容量约束通过聚类阶段（预先保证每簇需求 $\le Q$）来满足，不全部嵌入 QUBO。
+1. QUBO 转 Ising 辅助位表示
+2. 对零对角 Ising 做 mutate
+3. 再转回 QUBO
 
----
+该路径会在 meta 中记录 ising_aux_index，供回填解码时还原。
 
-## 4. QUBO 矩阵构造
+## 回填解码还原
 
-QUBO 标准形式：
+回填阶段按以下顺序规范化向量。
 
-$$
-\min \mathbf{x}^T Q \mathbf{x}, \quad \mathbf{x} \in \{0,1\}^n
-$$
+1. 处理 Ising 辅助位
+2. 必要时处理 split 还原
+3. Ising 自旋转二进制
+4. 按阈值二值化
 
-变量向量：将 $x_{i,p}$ 拉平为一维向量，索引 $k = i \times (N+1) + p$。
-
-矩阵填充规则：
-- 对角元 $Q_{kk}$：来自一次项系数（$x_{i,p}^2 = x_{i,p}$，合并到线性项）；
-- 非对角元 $Q_{kl}$（$k < l$）：来自二次交叉项系数（上三角存储）。
-
----
-
-## 5. 变量数规模估计
-
-| 问题 | 节点数 N | QUBO 变量数 | 备注 |
-|------|---------|------------|------|
-| Q1/Q2 | 15 | 256 | $(15+1)^2$ |
-| Q3 | 50 | 2601 | $(50+1)^2$，需分解 |
-| Q4 | 50 × K | ~2601×K | 分解后每子问题≤256 |
-
-典型量子退火设备（D-Wave 等）可处理数千变量，Kaiwu SDK 支持范围以实际 API 为准。
-
----
-
-## 参考文献
-
-1. Lucas, A. (2014). *Ising formulations of many NP problems*. Frontiers in Physics.
-2. Glover, F., Kochenberger, G., & Du, Y. (2019). *Quantum Bridge Analytics I: A Tutorial on Formulating and Using QUBO Models*. 4OR.
+该流程确保平台回传向量可与本地 QUBO 解码器对接。

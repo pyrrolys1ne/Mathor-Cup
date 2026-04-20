@@ -1,12 +1,10 @@
-"""
+﻿"""
 src/core/capacity.py
 ---------------------
-Capacity constraint utilities for multi-vehicle routing (Q4).
+问题四多车辆路径的容量约束工具。
 
-Each vehicle has a maximum capacity Q.  The total demand of all customers
-assigned to a vehicle must not exceed Q.
-
-Also provides helpers for feasibility checking and demand-aware clustering.
+每辆车容量上限为 Q，分配到该车的客户总需求不能超过 Q。
+同时提供可行性检查与需求感知分配辅助函数。
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ from src.core.graph_model import ProblemGraph
 
 
 # ---------------------------------------------------------------------------
-# Data containers
+# 数据结构
 # ---------------------------------------------------------------------------
 
 
@@ -46,7 +44,7 @@ class CapacityReport:
     vehicle_capacity: float
 
     def summary(self) -> str:
-        """Human-readable summary."""
+        """返回可读的容量校验摘要。"""
         lines = [
             f"Capacity feasibility: {'OK' if self.feasible else 'VIOLATED'}",
             f"  Vehicle capacity : {self.vehicle_capacity}",
@@ -59,7 +57,7 @@ class CapacityReport:
 
 
 # ---------------------------------------------------------------------------
-# Core functions
+# 核心函数
 # ---------------------------------------------------------------------------
 
 
@@ -199,3 +197,4 @@ def route_demand(route: list[int], graph: ProblemGraph) -> float:
     O(|route|)
     """
     return sum(graph.demand(n) for n in route if n != graph.depot_id)
+

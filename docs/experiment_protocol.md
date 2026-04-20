@@ -1,133 +1,190 @@
-# 实验方案 / Experiment Protocol
+# 实验流程说明
 
-## 环境要求
+## 运行环境
 
-| 项目 | 规格 |
-|------|------|
-| Python | 3.10.x |
-| 操作系统 | Windows 10/11、Ubuntu 22.04、macOS 13+ |
-| 内存 | ≥ 8 GB |
-| CPU | ≥ 4 核（混合算法建议 8 核） |
-| Kaiwu SDK | 可选，需单独申请（部分环境无法直接 `pip install kaiwu`） |
+- Python 3.10
+- 依赖见 requirements.txt
+- 可选 Kaiwu SDK
 
----
+## 统一入口
 
-## 可复现性保证
-
-- 所有随机过程（SA 初始解、聚类、扰动）使用固定 `seed`（默认 42）；
-- 依赖版本锁定在 `requirements.txt`；
-- 预处理结果缓存到 `data/processed/`，保证数据一致性；
-- 实验配置文件（`configs/*.yaml`）与代码版本同步提交。
-
----
-
-## 运行前检查（强烈建议）
-
-- 安装依赖与运行命令使用同一个解释器（建议统一 `.venv`）；
-- Windows + PowerShell 若无法激活脚本，可先执行：
-	`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`；
-- 若 Kaiwu 已安装在系统 Python 而非 venv，可创建 venv 时使用：
-	`python -m venv .venv --system-site-packages`；
-- Kaiwu 鉴权优先通过环境变量注入：
-	`KAIWU_USER_ID`、`KAIWU_SDK_CODE`。
-
----
-
-## 实验流程
-
-### Phase 1：数据预处理
-
-```bash
-python -m src.main --config configs/q1.yaml --phase data
-```
-
-输出：
-- `data/processed/nodes.pkl`：节点属性 DataFrame
-- `data/processed/travel_time.pkl`：旅行时间矩阵 ndarray
-- `outputs/logs/q1_run.log`：数据校验与运行日志
-
-说明：
-- 当原始数据是 50 客户、但 `q1.yaml`/`q2.yaml` 中 `num_customers=15` 时，程序会自动截取前 15 个客户参与求解，避免口径混乱。
-
----
-
-### Phase 2：问题1 实验
+全部实验通过以下入口运行。
 
 ```bash
 python -m src.main --config configs/q1.yaml
 ```
 
-输出：
-- `outputs/results/q1_result.csv`：路径方案 + 目标值
-- `outputs/figures/q1_route.png`：路径可视化
-- `outputs/logs/q1_run.log`：求解日志
+可用参数。
 
-说明：
-- `solver.backend=kaiwu` 且 Kaiwu 不可用时，程序会自动回退到 SA。
+- --phase data 只执行数据阶段
+- --phase export 只导出 QUBO 或 Ising
+- --phase solve 或 all 执行求解
+- --sensitivity 仅对 q4 生效
+- --solution 用平台回填结果解码
 
----
+## 数据阶段
 
-### Phase 3：问题2 实验
+```bash
+python -m src.main --config configs/q1.yaml --phase data
+```
+
+行为与输出。
+
+- 从 data.raw_excel 读取原始数据
+- 可缓存到 data.processed_dir
+- 当配置 num_customers 小于原始客户数时自动截断
+- 记录日志到 output.log_dir
+
+## 常规求解阶段
+
+### 问题一
+
+```bash
+python -m src.main --config configs/q1.yaml
+```
+
+输出文件。
+
+- results q1_result_sa.csv 或 q1_result_kaiwu.csv
+- figures q1_route_sa.png 或 q1_route_kaiwu.png
+
+### 问题二
 
 ```bash
 python -m src.main --config configs/q2.yaml
 ```
 
-附加输出：
-- 每个客户的时间窗违反量与惩罚值
-- `outputs/results/q2_result.csv`（包含每客户到达时刻、早到/晚到违反量、惩罚）
+输出文件。
 
----
+- results q2_result_sa.csv 或 q2_result_kaiwu.csv
+- figures q2_route_sa.png 或 q2_route_kaiwu.png
 
-### Phase 4：问题3 实验
+### 问题三
 
 ```bash
 python -m src.main --config configs/q3.yaml
 ```
 
-附加输出：
-- 聚类分组可视化 `outputs/figures/q3_clusters.png`
-- 全局路径结果 `outputs/results/q3_result.csv`
+输出文件。
 
----
+- results q3_result_kaiwu.csv
+- figures q3_route_kaiwu.png
+- figures q3_clusters_kaiwu.png
 
-### Phase 5：问题4 实验
+说明。
+
+- q3 内部根据 solver.backend 与 hybrid.sub_solver 选择子求解器
+- 结果文件名当前固定使用 kaiwu 后缀
+
+### 问题四
 
 ```bash
-# 词典序优化
 python -m src.main --config configs/q4.yaml
+```
 
-# 敏感性分析（车辆数扫描）
+输出文件。
+
+- results q4_vehicles_hybrid.csv 或 q4_vehicles_kaiwu.csv
+- results q4_result_hybrid.csv 或 q4_result_kaiwu.csv
+- figures q4_routes_hybrid.png 或 q4_routes_kaiwu.png
+- figures q4_cost_breakdown_hybrid.png 或 q4_cost_breakdown_kaiwu.png
+
+说明。
+
+- vehicle.optimization_mode 支持 lexicographic 与 weighted
+- 容量优先读取 Excel，缺失时回退 vehicle.capacity
+
+## q4 敏感性分析
+
+```bash
 python -m src.main --config configs/q4.yaml --sensitivity
 ```
 
-附加输出：
-- `outputs/figures/q4_sensitivity.png`：车辆数敏感性曲线
-- `outputs/prescreen/q4_sensitivity.csv`：详细数据
+输出文件。
 
----
+- prescreen q4_sensitivity.csv
+- figures q4_sensitivity.png
 
-## 评估指标
+## 导出阶段
 
-| 指标 | 说明 |
-|------|------|
-| 总旅行时间 | 所有车辆行驶时间之和 |
-| 时间窗惩罚总量 | $\sum_i \text{penalty}_i$ |
-| 综合目标值 | 旅行时间 + 时间窗惩罚 |
-| 车辆数 | 实际使用车辆数（Q4） |
-| 每客户服务开始时刻 | $t_i$（当前实现不等待，达到即服务） |
-| 每车负载率 | $\sum d_i / Q$（Q4） |
+```bash
+python -m src.main --config configs/q4.yaml --phase export
+```
 
----
+统一规则。
 
-## 自检清单
+- 输出目录由 output.qubo_dir 控制
+- 导出原始矩阵与适配后矩阵
+- 输出元信息 meta json
 
-- [ ] `data/raw/reference_case.xlsx` 存在且可读
-- [ ] Sheet1 行数 = 51（含配送中心）
-- [ ] Sheet2 矩阵维度 = 51×51
-- [ ] 对角线元素全为 0
-- [ ] 所有旅行时间非负
-- [ ] 求解器输出路径覆盖所有客户节点
-- [ ] 路径从配送中心出发并返回配送中心
-- [ ] 时间窗惩罚计算正确（对照手算验证）
-- [ ] 图表文件生成成功
+q1 q2 输出单文件。
+
+- q1_qubo.csv 或 q1_ising.csv
+- q2_qubo.csv 或 q2_ising.csv
+
+q3 q4 输出分解清单。
+
+- q3_export_manifest.json
+- q4_export_manifest_kXX.json 或 q4_export_manifest_vXX.json
+- q4_export_manifest_vehicle_sweep.json
+- q4_export_manifest.json 作为最新别名
+
+## 回填解码阶段
+
+### q1 q2 回填
+
+```bash
+python -m src.main --config configs/q1.yaml --solution path_to_log_or_vector
+python -m src.main --config configs/q2.yaml --solution path_to_log_or_vector
+```
+
+输出文件。
+
+- q1_result_cpqc550.csv
+- q2_result_cpqc550.csv
+
+### q3 回填
+
+```bash
+python -m src.main --config configs/q3.yaml --solution data/platform_feedback
+```
+
+规则。
+
+- 读取 q3_export_manifest.json
+- 支持目录内多文件配对
+- 支持单文件复用全部子问题
+
+输出文件。
+
+- q3_result_cpqc550.csv
+- q3_route_cpqc550.png
+- q3_clusters_cpqc550.png
+
+### q4 回填
+
+```bash
+python -m src.main --config configs/q4.yaml --solution data/platform_feedback
+```
+
+规则。
+
+- 支持目录 q4_vXX_kYY 批量回填
+- 支持 q4_run_*.log 与 q4_vXX_kYY_*.log
+- 支持 manifest 回退到 outputs/qubo_ising
+- 支持 meta 文件按同名重定位
+- 批次失败自动跳过
+- 成功批次按 optimization_mode 选最优
+
+输出文件。
+
+- q4_vehicles_cpqc550.csv
+- q4_result_cpqc550.csv
+- q4_routes_cpqc550.png
+- q4_cost_breakdown_cpqc550.png
+
+## 复现实验建议
+
+- 固定 sa.seed 与 hybrid.seed
+- 保持导出与回填使用同一批 manifest
+- 回填目录按 q4_vXX_kYY 命名可减少歧义

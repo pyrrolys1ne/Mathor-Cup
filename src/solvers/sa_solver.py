@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/solvers/sa_solver.py
 -------------------------
 Simulated Annealing (SA) solver for TSP/VRP.
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Config
+# 配置
 # ---------------------------------------------------------------------------
 
 
@@ -59,7 +59,7 @@ class SAConfig:
 
 
 # ---------------------------------------------------------------------------
-# Result container
+# 结果结构
 # ---------------------------------------------------------------------------
 
 
@@ -89,7 +89,7 @@ class SAResult:
 
 
 # ---------------------------------------------------------------------------
-# Permutation-space SA (primary)
+# 排列空间退火 主流程
 # ---------------------------------------------------------------------------
 
 
@@ -130,7 +130,7 @@ def solve_route_sa(
     rng = random.Random(cfg.seed)
     np_rng = np.random.default_rng(cfg.seed)
 
-    # Initialise with a random permutation
+    # 使用随机排列初始化
     current = list(customer_ids)
     rng.shuffle(current)
     current_cost = cost_fn(current)
@@ -177,7 +177,7 @@ def solve_route_sa(
 
 
 # ---------------------------------------------------------------------------
-# QUBO-space SA (for compatibility with QUBO interface)
+# 二进制矩阵空间退火 兼容矩阵求解接口
 # ---------------------------------------------------------------------------
 
 
@@ -211,10 +211,10 @@ def solve_qubo_sa(
     rng = np.random.default_rng(cfg.seed)
     n = Q.shape[0]
 
-    # Precompute symmetric Q for efficient energy computation
+    # 预计算对称 Q 提升能量计算效率
     Q_sym = Q + Q.T - np.diag(np.diag(Q))
 
-    # Initialise randomly
+    # 随机初始化
     x = rng.integers(0, 2, size=n).astype(np.float64)
     energy = float(x @ Q @ x)
 
@@ -229,7 +229,7 @@ def solve_qubo_sa(
         for _ in range(cfg.n_iter_per_temp):
             total_iters += 1
             bit = int(rng.integers(0, n))
-            # Energy change for flipping bit i:  ΔE = (1-2*x_i)*(Q_sym @ x)[i]
+            # 翻转第 i 位的能量变化按增量公式计算
             delta = float((1 - 2 * x[bit]) * (Q_sym @ x)[bit])
             if delta < 0 or rng.random() < math.exp(-delta / temp):
                 x[bit] = 1 - x[bit]
@@ -251,7 +251,7 @@ def solve_qubo_sa(
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# 内部辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -280,14 +280,15 @@ def _random_move(route: list[int], rng: random.Random) -> list[int]:
     candidate = list(route)
 
     if move_type < 0.5 or n < 3:
-        # 2-opt: reverse a sub-segment
+        # 2-opt 反转一段子序列
         i, j = sorted(rng.sample(range(n), 2))
         candidate[i : j + 1] = candidate[i : j + 1][::-1]
     else:
-        # or-opt: remove one customer and reinsert at different position
+        # 单点重定位 将一个客户移除后插入新位置
         i = rng.randrange(n)
         node = candidate.pop(i)
         j = rng.randrange(len(candidate) + 1)
         candidate.insert(j, node)
 
     return candidate
+

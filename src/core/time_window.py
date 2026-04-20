@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/core/time_window.py
 ------------------------
 Time-window penalty calculation and route arrival-time simulation.
@@ -23,7 +23,7 @@ from src.core.graph_model import ProblemGraph
 
 
 # ---------------------------------------------------------------------------
-# Data containers
+# 数据结构
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +77,7 @@ class RouteTimingResult:
 
 
 # ---------------------------------------------------------------------------
-# Core functions
+# 核心函数
 # ---------------------------------------------------------------------------
 
 
@@ -159,7 +159,7 @@ def simulate_route_timing(
     full_route = list(route)
     depot = graph.depot_id
 
-    # Ensure depot bookends
+    # 确保路径首尾为仓库
     if not full_route or full_route[0] != depot:
         full_route = [depot] + full_route
     if full_route[-1] != depot:
@@ -175,7 +175,7 @@ def simulate_route_timing(
         from_node = full_route[k]
         to_node = full_route[k + 1]
 
-        # Travel to next node
+        # 移动到下一节点
         arc_time = graph.travel(from_node, to_node)
         current_time += arc_time
         total_travel += arc_time
@@ -183,7 +183,7 @@ def simulate_route_timing(
         if to_node == depot:
             break  # Return leg — no service or penalty at depot
 
-        # Compute service start (no waiting)
+        # 计算服务开始时间 不等待
         arrival_time = current_time
         e_i, l_i = graph.time_window(to_node)
         early_viol, late_viol, pen = compute_penalty(arrival_time, e_i, l_i, alpha, beta)
@@ -199,7 +199,7 @@ def simulate_route_timing(
             )
         )
 
-        # Service time consumed before departing
+        # 离开前计入服务时长
         s_i = graph.service_time(to_node)
         current_time += s_i
         total_service += s_i
@@ -271,3 +271,4 @@ def compute_penalty_array(
     early_viol = np.maximum(0.0, earliests - arrivals)
     late_viol = np.maximum(0.0, arrivals - latests)
     return alpha * early_viol**2 + beta * late_viol**2
+

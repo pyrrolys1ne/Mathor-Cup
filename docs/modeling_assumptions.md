@@ -1,68 +1,86 @@
-# 建模假设 / Modeling Assumptions
+# 建模假设与实现口径
 
-## 通用假设
+## 通用口径
 
-1. **节点编号**：配送中心 ID = 0，客户节点 ID = 1, 2, …, N。
-2. **无等待假设**：车辆到达客户后立即开始服务，不等待时间窗开启。
-3. **出发时刻**：车辆从配送中心出发时刻为 0。
-4. **旅行时间**：采用给定的 $51 \times 51$ 旅行时间矩阵，矩阵元素 $T[i][j]$ 表示从节点 $i$ 到节点 $j$ 的旅行时间。
-5. **对称性**：矩阵不强制对称，以实际数据为准。
-6. **服务时间**：节点 $i$ 的到达时刻 $t_i$ 计算为沿路径累积旅行时间 + 前序节点服务时间之和。
+- 配送中心节点编号固定为 0
+- 客户节点编号为 1 到 N
+- 路径默认从配送中心出发并回到配送中心
+- 旅行时间直接采用输入矩阵，不强制对称
+- 到达即服务，不设置等待机制
 
-## 时间窗惩罚模型
+## 时间窗与惩罚
 
-$$
-\text{penalty}_i = 10 \cdot \max(0, e_i - t_i)^2 + 20 \cdot \max(0, t_i - l_i)^2
-$$
-
-- $e_i$：时间窗最早时刻（早到惩罚）
-- $l_i$：时间窗最晚时刻（晚到惩罚）
-- $t_i$：实际到达时刻
-- 早到系数 10，晚到系数 20（晚到惩罚更重）
-
-## 容量约束
+节点 i 的惩罚定义为。
 
 $$
-\sum_{i \in \text{route}_k} d_i \le Q, \quad \forall k
+penalty_i = \alpha \cdot \max(0, e_i - t_i)^2 + \beta \cdot \max(0, t_i - l_i)^2
 $$
 
-- $d_i$：客户 $i$ 的需求量
-- $Q$：单车容量上限
+实现默认值。
 
-## 问题4 优化目标（词典序）
+- $\alpha = 10$
+- $\beta = 20$
 
-**第一优先级**：最小化车辆数 $K$
+相关参数由 time_window.alpha 与 time_window.beta 控制。
 
-$$
-\min K
-$$
+## 容量约束口径
 
-**第二优先级**（在最小 $K$ 下）：最小化总费用
+问题四中每车负载满足。
 
 $$
-\min \sum_k \text{TravelTime}_k + \sum_i \text{penalty}_i
+\sum_{i \in route_k} d_i \le Q
 $$
 
-**对照实验（加权和）**：
+容量来源优先级。
+
+1. data.raw_excel 中可识别容量列
+2. vehicle.capacity
+
+## q4 优化目标口径
+
+### 词典序模式
+
+vehicle.optimization_mode 为 lexicographic 时采用两级比较键。
+
+1. 车辆数最小
+2. 在车辆数相同前提下比较总旅行时间
+3. 若仍相同再比较总惩罚
+
+实现键为 $(n_vehicles, total_travel, total_penalty)$。
+
+### 加权模式
+
+vehicle.optimization_mode 为 weighted 时，比较分数。
 
 $$
-\min \alpha \cdot K + \beta \cdot \sum_k \text{TravelTime}_k + \gamma \cdot \sum_i \text{penalty}_i
+score = w_v \cdot n_vehicles + w_t \cdot total_travel + w_p \cdot total_penalty
 $$
 
-其中 $\alpha \gg \beta, \gamma$（如 $\alpha=100, \beta=1, \gamma=1$）。
+权重来源。
 
-## QUBO 建模口径
+- $w_v$ 对应 objective.alpha
+- $w_t$ 对应 objective.beta
+- $w_p$ 对应 objective.gamma
 
-- TSP/VRP 采用排列矩阵编码：$x_{i,p} = 1$ 表示节点 $i$ 在位置 $p$ 被访问。
-- 硬约束（恰好访问一次、每位置一个节点）用二次惩罚项嵌入目标。
-- 软约束（时间窗）用带权二次项嵌入。
-- 惩罚系数选择原则：惩罚系数 $\ge$ 目标函数可能的最大贡献值（保证可行性）。
+## q3 q4 分解假设
 
-## 分解策略（Q3/Q4）
+- 先聚类再分组，子问题分别求解
+- 子问题路径可做 two_opt 局部改进
+- q3 采用拼接策略合并子路径
+- q4 先分配客户到车辆再逐车解码
 
-当节点数超出量子设备比特上限时：
+## 回填解码口径
 
-1. **聚类**：K-Means 按地理坐标将客户分为 $K$ 组；
-2. **子问题求解**：每组独立构建 TSP QUBO，使用量子/SA 求解；
-3. **路径拼接**：以配送中心为起点，按组间距离最短原则连接各子路径；
-4. **局部修复**：对拼接边界应用 2-opt / or-opt 改进。
+- 平台日志优先解析 solutionVector
+- 支持多候选向量，按子问题目标选择最优候选
+- 支持 Ising 自旋向量自动转二进制
+- 若为 split 适配，可按 meta 还原变量维度
+- q4 支持多批目录，失败批次跳过
+
+## 精度适配口径
+
+precision_method 支持 none truncate mutate split。
+
+- output_model 为 ising 时矩阵会标准化为对称且对角为零
+- mutate 在部分 SDK 缺失时可走 QUBO 转 Ising 辅助位再回转路径
+- 最终导出矩阵统一量化为整型

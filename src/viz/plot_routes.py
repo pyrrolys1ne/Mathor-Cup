@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/viz/plot_routes.py
 -----------------------
 Route visualisation utilities.
@@ -26,7 +26,7 @@ matplotlib.use("Agg")  # Non-interactive backend for server/CI environments
 
 logger = logging.getLogger(__name__)
 
-# Colour palette for multiple vehicles
+# 多车辆配色表
 _VEHICLE_COLOURS = [
     "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
     "#ff7f00", "#a65628", "#f781bf", "#999999",
@@ -158,7 +158,7 @@ def plot_clusters(
         ys = [graph.coords(customer_ids[i])[1] for i in idxs]
         ax.scatter(xs, ys, c=colour, s=60, label=f"Cluster {lbl}", zorder=3)
 
-    # Depot
+    # 仓库点
     depot_x, depot_y = graph.coords(graph.depot_id)
     ax.scatter([depot_x], [depot_y], c="black", marker="*", s=200, zorder=4, label="Depot")
 
@@ -175,7 +175,7 @@ def plot_clusters(
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# 内部辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -186,16 +186,16 @@ def _draw_route(
     colour: str,
     label: str,
 ) -> None:
-    """Draw route arrows on an existing Axes."""
+    """在现有坐标轴上绘制路径与方向箭头。"""
     if not route:
         return
     coords = [graph.coords(n) for n in route]
     xs, ys = zip(*coords)
 
-    # Draw path
+    # 绘制路径
     ax.plot(xs, ys, "-o", color=colour, linewidth=1.5, markersize=5, label=label)
 
-    # Arrows for direction
+    # 绘制方向箭头
     for k in range(len(coords) - 1):
         x0, y0 = coords[k]
         x1, y1 = coords[k + 1]
@@ -208,7 +208,7 @@ def _draw_route(
 
 
 def _annotate_nodes(ax: plt.Axes, graph: ProblemGraph) -> None:
-    """Label all nodes with their IDs on the given Axes."""
+    """在坐标轴上标注所有节点编号。"""
     for nid in graph.all_ids:
         x, y = graph.coords(nid)
         marker = "*" if nid == graph.depot_id else "o"
@@ -219,9 +219,10 @@ def _annotate_nodes(ax: plt.Axes, graph: ProblemGraph) -> None:
 
 
 def _save(fig: plt.Figure, path: str | Path) -> None:
-    """Save figure to file, creating parent directories as needed."""
+    """保存图像到文件，必要时自动创建目录。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     logger.info("Saved figure to %s", path)
     plt.close(fig)
+

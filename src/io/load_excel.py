@@ -1,13 +1,13 @@
-"""
+﻿"""
 src/io/load_excel.py
 ---------------------
-Load and pre-process the reference_case.xlsx input file.
+读取并预处理 reference_case.xlsx 输入文件。
 
-Sheet layout expected:
-  Sheet1 – Node attributes (ID, x, y, e_i, l_i, service_time, demand)
-  Sheet2 – 51×51 travel-time matrix (rows = origins, cols = destinations)
+表结构约定:
+    Sheet1 为节点属性，包含 ID、x、y、e_i、l_i、service_time、demand
+    Sheet2 为 51 乘 51 旅行时间矩阵，行表示起点，列表示终点
 
-Node 0 is the depot; nodes 1..N are customers.
+节点 0 为配送中心，节点 1 到 N 为客户。
 """
 
 from __future__ import annotations
@@ -24,12 +24,12 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Public constants
+# 公共常量
 # ---------------------------------------------------------------------------
 
-#: Expected column names (case-insensitive) that must appear in Sheet1.
+#: Sheet1 必须包含的列名，忽略大小写。
 REQUIRED_NODE_COLUMNS: list[str] = ["node_id"]
-#: Optional columns – filled with defaults when absent.
+#: 可选列，缺失时使用默认值补齐。
 OPTIONAL_NODE_COLUMNS: dict[str, Any] = {
     "x": 0.0,          # x coordinate (fallback when absent)
     "y": 0.0,          # y coordinate (fallback when absent)
@@ -39,7 +39,7 @@ OPTIONAL_NODE_COLUMNS: dict[str, Any] = {
     "demand": 0,       # demand / load
 }
 
-#: Column aliases: maps common variant names → canonical name.
+#: 列名别名映射，将常见写法归一到标准列名。
 COLUMN_ALIASES: dict[str, str] = {
     "id": "node_id",
     "node": "node_id",
@@ -70,7 +70,7 @@ COLUMN_ALIASES: dict[str, str] = {
     "需求量": "demand",
 }
 
-# Common column names for per-vehicle capacity in Sheet1 metadata.
+# 第一张表元信息中的常见车辆容量列名
 VEHICLE_CAPACITY_ALIASES: set[str] = {
     "vehicle_capacity",
     "capacity",
@@ -85,7 +85,7 @@ VEHICLE_CAPACITY_ALIASES: set[str] = {
 
 
 # ---------------------------------------------------------------------------
-# Main loader
+# 主加载流程
 # ---------------------------------------------------------------------------
 
 
@@ -129,7 +129,7 @@ def load_instance(
     if not excel_path.exists():
         raise FileNotFoundError(f"Excel file not found: {excel_path}")
 
-    # Try loading from cache -------------------------------------------------
+    # 尝试从缓存读取
     if processed_dir is not None and not force_reload:
         processed_dir = Path(processed_dir)
         nodes_pkl = processed_dir / "nodes.pkl"
@@ -151,13 +151,13 @@ def load_instance(
                 "Cached matrix appears invalid (shape/diagonal/NaN). Reloading from Excel."
             )
 
-    # Load from Excel --------------------------------------------------------
+    # 从 Excel 读取
     logger.info("Loading Excel instance from %s", excel_path)
     nodes = _load_nodes(excel_path)
     travel_time = _load_travel_time(excel_path, n_nodes=len(nodes))
     nodes = _ensure_plot_coords(nodes, travel_time)
 
-    # Persist cache ----------------------------------------------------------
+    # 写入缓存
     if processed_dir is not None:
         processed_dir = Path(processed_dir)
         processed_dir.mkdir(parents=True, exist_ok=True)
@@ -196,8 +196,8 @@ def load_vehicle_capacity(excel_path: str | Path) -> float | None:
         logger.warning("Failed to read Sheet1 for vehicle capacity: %s", exc)
         return None
 
-    # Normalise names and strip symbols so Chinese/English variants are easier
-    # to match (e.g. "车辆容量", "vehicle capacity").
+    # 规范列名并去除符号 便于匹配中英文变体
+    # 示例为车辆容量与 vehicle capacity
     norm_map: dict[str, str] = {}
     for c in raw.columns:
         k = str(c).strip().lower().replace(" ", "_")
@@ -218,8 +218,8 @@ def load_vehicle_capacity(excel_path: str | Path) -> float | None:
             if cap > 0:
                 return cap
 
-    # Fallback for encoding-damaged headers: choose a sparse numeric column
-    # whose first row (depot row) has a positive value.
+    # 表头乱码时回退为稀疏数字列
+    # 要求首行仓库数据为正值
     numeric = raw.apply(pd.to_numeric, errors="coerce")
     sparse_candidates: list[tuple[str, int, float]] = []
     for col in numeric.columns:
@@ -230,7 +230,7 @@ def load_vehicle_capacity(excel_path: str | Path) -> float | None:
             sparse_candidates.append((str(col), non_na, float(first_val)))
 
     if sparse_candidates:
-        # Prefer the sparsest column; tie-break by later column position.
+        # 优先选择最稀疏列 若并列则取靠后列
         best_name = min(sparse_candidates, key=lambda x: (x[1], -list(numeric.columns).index(x[0])))
         return float(best_name[2])
 
@@ -238,7 +238,7 @@ def load_vehicle_capacity(excel_path: str | Path) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# 内部辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -286,7 +286,7 @@ def _load_nodes(excel_path: Path) -> pd.DataFrame:
     raw = pd.read_excel(excel_path, sheet_name=0, header=0)
     df = _normalise_columns(raw)
 
-    # Check required columns
+    # 检查必需列
     missing = [c for c in REQUIRED_NODE_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(
@@ -294,17 +294,17 @@ def _load_nodes(excel_path: Path) -> pd.DataFrame:
             f"Found columns: {list(df.columns)}"
         )
 
-    # Fill optional columns with defaults
+    # 为可选列填充默认值
     for col, default in OPTIONAL_NODE_COLUMNS.items():
         if col not in df.columns:
             logger.warning("Column '%s' not found in Sheet1; using default %s", col, default)
             df[col] = default
 
-    # Select and order columns
+    # 选择并排序列
     canonical_cols = REQUIRED_NODE_COLUMNS + list(OPTIONAL_NODE_COLUMNS.keys())
     df = df[canonical_cols].copy()
 
-    # Ensure node_id is integer and sort
+    # 确保 node_id 为整数并排序
     df["node_id"] = df["node_id"].astype(int)
     df = df.sort_values("node_id").reset_index(drop=True)
 
@@ -337,13 +337,13 @@ def _load_travel_time(excel_path: Path, n_nodes: int) -> np.ndarray:
     except Exception as exc:
         raise ValueError(f"Cannot read Sheet2 (travel-time matrix): {exc}") from exc
 
-    # Drop any all-NaN rows/columns (sometimes Excel has a header row)
+    # 删除全空行列 兼容表头偏移
     raw = raw.dropna(how="all").dropna(axis=1, how="all")
     raw_num = raw.apply(pd.to_numeric, errors="coerce")
 
-    # Common format: top-left NaN, first row/col are node index labels.
-    # Example:
-    #   NaN  0  1  2 ...
+    # 常见格式为左上角空值 第一行列为节点编号
+    # 示例
+    #   空值  0  1  2 ...
     #    0   0  2  2 ...
     if raw_num.shape[0] >= n_nodes + 1 and raw_num.shape[1] >= n_nodes + 1:
         top_left_nan = not np.isfinite(raw_num.iat[0, 0])
@@ -353,7 +353,7 @@ def _load_travel_time(excel_path: Path, n_nodes: int) -> np.ndarray:
             raw_num = raw_num.iloc[1:, 1:]
             logger.debug("Dropped index row/column with top-left empty cell from Sheet2")
 
-    # If first row/column looks like node indices, drop them
+    # 若首行列看起来是节点编号则删除
     if _is_index_sequence(raw_num.iloc[:, 0]):
         raw_num = raw_num.iloc[:, 1:]
         logger.debug("Dropped index column from Sheet2")
@@ -365,7 +365,7 @@ def _load_travel_time(excel_path: Path, n_nodes: int) -> np.ndarray:
     matrix = raw_num.values.astype(float)
     logger.debug("Travel-time matrix shape after parsing: %s", matrix.shape)
 
-    # Validate dimensions: accept either n_nodes×n_nodes or smaller (take top-left block)
+    # 校验维度 允许更大矩阵并截取左上角区域
     if matrix.shape[0] < n_nodes or matrix.shape[1] < n_nodes:
         raise ValueError(
             f"Travel-time matrix shape {matrix.shape} is smaller than expected "
@@ -384,7 +384,7 @@ def _load_travel_time(excel_path: Path, n_nodes: int) -> np.ndarray:
 
 
 def _is_index_sequence(values: pd.Series) -> bool:
-    """Return True if values look like index labels: 0..N-1 or 1..N."""
+    """判断序列是否看起来像行列索引。"""
     arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
@@ -398,7 +398,7 @@ def _is_index_sequence(values: pd.Series) -> bool:
 
 
 def _is_cache_valid(nodes: pd.DataFrame, travel_time: np.ndarray) -> bool:
-    """Basic cache integrity checks to avoid persistent bad cache reuse."""
+    """执行基础缓存完整性检查，避免复用损坏缓存。"""
     if travel_time.ndim != 2 or travel_time.shape[0] != travel_time.shape[1]:
         return False
     n_nodes = len(nodes)
@@ -409,7 +409,7 @@ def _is_cache_valid(nodes: pd.DataFrame, travel_time: np.ndarray) -> bool:
     if not np.allclose(np.diag(travel_time), 0.0):
         return False
 
-    # Reject cache if plotting coordinates are missing/degenerate.
+    # 若绘图坐标缺失或退化则拒绝缓存
     if "x" in nodes.columns and "y" in nodes.columns:
         xv = pd.to_numeric(nodes["x"], errors="coerce").to_numpy(dtype=float)
         yv = pd.to_numeric(nodes["y"], errors="coerce").to_numpy(dtype=float)
@@ -459,11 +459,11 @@ def _ensure_plot_coords(nodes: pd.DataFrame, travel_time: np.ndarray) -> pd.Data
 
 
 def _coords_from_distance_matrix(dist: np.ndarray) -> np.ndarray:
-    """Classical MDS: derive 2D coordinates from a distance-like matrix."""
+    """使用经典 MDS 从距离矩阵推导二维坐标。"""
     n = dist.shape[0]
     d = np.asarray(dist, dtype=float)
 
-    # Guard against tiny negative values from numerical noise
+    # 处理数值噪声带来的微小负值
     d = np.maximum(d, 0.0)
     d2 = d ** 2
 
@@ -480,6 +480,7 @@ def _coords_from_distance_matrix(dist: np.ndarray) -> np.ndarray:
         lam = np.sqrt(evals[:2])
         return evecs[:, :2] * lam
 
-    # Fallback: simple circle layout if matrix has insufficient rank
+    # 当矩阵秩不足时回退到圆形布局
     angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
     return np.column_stack((np.cos(angles), np.sin(angles)))
+

@@ -1,7 +1,7 @@
 """
 tests/test_qubo_shapes.py
----------------------------
-Tests for QUBO matrix construction in q1_qubo.py and penalties.py.
+--------------------------
+q1_qubo 与 penalties 的 QUBO 形状与解码测试。
 """
 
 from __future__ import annotations
@@ -22,12 +22,12 @@ from src.qubo.q1_qubo import build_q1_qubo, decode_q1_solution
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
 def _tiny_graph(n_customers: int = 3):
-    """Build a tiny (n_customers + 1)-node graph."""
+    """构造小规模图，节点数为 n_customers 加 1。"""
     n = n_customers + 1
     nodes = pd.DataFrame(
         [
@@ -50,7 +50,7 @@ def _tiny_graph(n_customers: int = 3):
 
 
 # ---------------------------------------------------------------------------
-# one_hot_penalty tests
+# one_hot_penalty 测试
 # ---------------------------------------------------------------------------
 
 
@@ -72,7 +72,7 @@ class TestOneHotPenalty:
             assert r <= c, f"Lower-triangle entry found: ({r}, {c})"
 
     def test_feasible_solution_low_energy(self):
-        """One-hot feasible solution should have lower energy than infeasible."""
+        """可行 one-hot 解的能量应低于不可行解。"""
         q = one_hot_penalty([0, 1, 2], strength=100.0)
         Q = qdict_to_matrix(q, 3)
         x_feasible = np.array([1.0, 0.0, 0.0])
@@ -83,7 +83,7 @@ class TestOneHotPenalty:
 
 
 # ---------------------------------------------------------------------------
-# qdict_to_matrix tests
+# qdict_to_matrix 测试
 # ---------------------------------------------------------------------------
 
 
@@ -106,7 +106,7 @@ class TestQdictToMatrix:
 
 
 # ---------------------------------------------------------------------------
-# build_q1_qubo tests
+# build_q1_qubo 测试
 # ---------------------------------------------------------------------------
 
 
@@ -123,7 +123,7 @@ class TestBuildQ1QUBO:
         graph = _tiny_graph(n_customers=3)
         result = build_q1_qubo(graph)
         Q = result.Q
-        # Lower triangle (excluding diagonal) should be zero
+        # 下三角不含对角线应为零
         lower = np.tril(Q, k=-1)
         assert np.allclose(lower, 0.0), "QUBO matrix should be upper-triangular"
 
@@ -131,7 +131,7 @@ class TestBuildQ1QUBO:
         graph = _tiny_graph(n_customers=3)
         r_weak = build_q1_qubo(graph, penalty_visit=10.0)
         r_strong = build_q1_qubo(graph, penalty_visit=1000.0)
-        # Strong penalty → larger absolute off-diagonal entries
+        # 惩罚更强时绝对系数上界应更大
         assert np.abs(r_strong.Q).max() > np.abs(r_weak.Q).max()
 
     def test_larger_instance_shape(self):
@@ -143,13 +143,13 @@ class TestBuildQ1QUBO:
 
 
 # ---------------------------------------------------------------------------
-# decode_q1_solution tests
+# decode_q1_solution 测试
 # ---------------------------------------------------------------------------
 
 
 class TestDecodeQ1Solution:
     def _make_perfect_x(self, n: int, route_order: list[int]) -> np.ndarray:
-        """Construct a perfect one-hot binary vector for a given route order."""
+        """按给定路径顺序构造理想 one-hot 向量。"""
         x = np.zeros(n * n, dtype=float)
         for pos, node in enumerate(route_order):
             x[node * n + pos] = 1.0
@@ -158,12 +158,12 @@ class TestDecodeQ1Solution:
     def test_decode_perfect_solution(self):
         graph = _tiny_graph(n_customers=3)
         n = 4
-        # Route: depot(0) at pos 0, node 1 at pos 1, node 2 at pos 2, node 3 at pos 3
+        # 路径顺序为 0 1 2 3
         order = [0, 1, 2, 3]
         x = self._make_perfect_x(n, order)
         result = build_q1_qubo(graph)
         route = decode_q1_solution(x, result.n_nodes, result.var_idx)
-        # Route should include depot, visit all customers, return to depot
+        # 路径应从仓库出发并回到仓库，且覆盖全部客户
         assert route[0] == 0
         assert route[-1] == 0
         customers_visited = set(route[1:-1])
@@ -172,10 +172,10 @@ class TestDecodeQ1Solution:
     def test_decode_all_customers_present(self):
         graph = _tiny_graph(n_customers=5)
         result = build_q1_qubo(graph)
-        # Random near-feasible solution
+        # 随机构造近可行向量
         rng = np.random.default_rng(0)
         x = rng.integers(0, 2, size=result.n_vars).astype(float)
         route = decode_q1_solution(x, result.n_nodes, result.var_idx)
-        # Route must be a permutation of all node IDs
+        # 路径内部节点应由全部客户组成
         interior = route[1:-1]
         assert len(interior) == result.n_nodes - 1 or len(interior) >= 1  # best-effort

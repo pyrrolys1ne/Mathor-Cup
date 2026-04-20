@@ -1,8 +1,7 @@
 """
 tests/test_route_decode.py
-----------------------------
-Tests for src/algorithms/route_decode.py, local_search.py, and
-sa_solver.py route decoding/optimisation.
+--------------------------
+route_decode、local_search 与 sa_solver 的路径相关测试。
 """
 
 from __future__ import annotations
@@ -18,12 +17,12 @@ from src.solvers.sa_solver import SAConfig, SAResult, solve_route_sa
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
 def _small_graph(n_customers: int = 5, seed: int = 0):
-    """Build a small random graph."""
+    """构造小规模随机图。"""
     rng = np.random.default_rng(seed)
     n = n_customers + 1
     nodes = pd.DataFrame(
@@ -51,7 +50,7 @@ def _small_graph(n_customers: int = 5, seed: int = 0):
 
 
 # ---------------------------------------------------------------------------
-# nearest_neighbour_route tests
+# nearest_neighbour_route 测试
 # ---------------------------------------------------------------------------
 
 
@@ -81,7 +80,7 @@ class TestNearestNeighbourRoute:
 
 
 # ---------------------------------------------------------------------------
-# two_opt tests
+# two_opt 测试
 # ---------------------------------------------------------------------------
 
 
@@ -107,7 +106,7 @@ class TestTwoOpt:
 
 
 # ---------------------------------------------------------------------------
-# or_opt tests
+# or_opt 测试
 # ---------------------------------------------------------------------------
 
 
@@ -128,7 +127,7 @@ class TestOrOpt:
 
 
 # ---------------------------------------------------------------------------
-# solve_route_sa tests
+# solve_route_sa 测试
 # ---------------------------------------------------------------------------
 
 
@@ -164,5 +163,5 @@ class TestSolveRouteSA:
         cfg_many = SAConfig(initial_temp=500, cooling_rate=0.95, min_temp=0.1, n_iter_per_temp=100, seed=42)
         r_few = solve_route_sa(graph.customer_ids, self._cost_fn(graph), cfg_few)
         r_many = solve_route_sa(graph.customer_ids, self._cost_fn(graph), cfg_many)
-        # More iterations should yield same or better cost
+        # 更长迭代通常不劣于短迭代
         assert r_many.best_cost <= r_few.best_cost + 1e-6

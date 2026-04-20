@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/algorithms/clustering.py
 ------------------------------
 Customer clustering for the decomposition strategy (Q3/Q4).
@@ -67,7 +67,7 @@ def cluster_customers(
     ----------
     O(N * K * iter) for K-Means; O(N²) for DBSCAN.
     """
-    # Build coordinate matrix
+    # 构建坐标矩阵
     coords = np.array([graph.coords(cid) for cid in customer_ids], dtype=float)
 
     if method == "kmeans":
@@ -84,12 +84,12 @@ def cluster_customers(
         db = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples)
         db.fit(coords)
         labels = db.labels_.astype(int)
-        # Compute centres as mean of assigned points
+        # 用分配点均值计算中心
         unique_labels = [l for l in np.unique(labels) if l != -1]
         centres = np.array(
             [coords[labels == lbl].mean(axis=0) for lbl in unique_labels]
         )
-        # Reassign outliers (-1) to nearest centre
+        # 将离群点重新分配到最近中心
         if -1 in labels and len(centres) > 0:
             for idx in np.where(labels == -1)[0]:
                 dists = np.linalg.norm(centres - coords[idx], axis=1)
@@ -106,6 +106,7 @@ def cluster_customers(
 
 
 def _label_sizes(labels: np.ndarray) -> dict[int, int]:
-    """Return cluster size mapping {label: count}."""
+    """返回簇规模映射。"""
     unique, counts = np.unique(labels, return_counts=True)
     return {int(u): int(c) for u, c in zip(unique, counts)}
+

@@ -1,21 +1,15 @@
-"""
+﻿"""
 src/solvers/kaiwu_solver.py
 ----------------------------
-Kaiwu SDK solver adapter.
+Kaiwu SDK 求解适配层。
 
-This module wraps the Kaiwu quantum annealing / quantum-inspired solver.
-Because the public Kaiwu API may change or may not be available in all
-environments, all calls are guarded by a ``try/except`` and the module
-degrades gracefully to a warning when the SDK is not installed.
+该模块封装 Kaiwu 量子退火与量子启发式求解接口。
+考虑到公开 API 在不同环境可能缺失或变化，所有调用均做异常保护，
+当 SDK 不可用时退化为清晰告警。
 
-The interface contract below is preserved so callers can switch between
-SA and Kaiwu backends without changing upstream code.
-
-Interface contract:
-  - ``solve_qubo_kaiwu(Q, cfg)`` accepts a numpy QUBO matrix and returns
-    a binary solution vector (np.ndarray of shape (n,)).
-  - Raises ``KaiwuUnavailableError`` if the SDK is not installed or the
-    endpoint is unreachable.
+对外约定:
+    - solve_qubo_kaiwu 接收 numpy QUBO 矩阵并返回二进制解向量
+    - SDK 不可用或连接失败时抛出 KaiwuUnavailableError
 """
 
 from __future__ import annotations
@@ -29,7 +23,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Try to import Kaiwu SDK
+# 尝试导入 Kaiwu SDK
 # ---------------------------------------------------------------------------
 
 try:
@@ -45,16 +39,16 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Exceptions
+# 异常定义
 # ---------------------------------------------------------------------------
 
 
 class KaiwuUnavailableError(RuntimeError):
-    """Raised when Kaiwu SDK is not installed or endpoint is unreachable."""
+    """Kaiwu SDK 未安装或服务不可用时抛出。"""
 
 
 # ---------------------------------------------------------------------------
-# Config
+# 配置
 # ---------------------------------------------------------------------------
 
 
@@ -95,7 +89,7 @@ class KaiwuConfig:
 
 
 # ---------------------------------------------------------------------------
-# Main interface
+# 主接口
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +175,7 @@ def is_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Helper: convert dense Q matrix to QUBO dict
+# 辅助函数 将稠密矩阵转为 QUBO 字典
 # ---------------------------------------------------------------------------
 
 
@@ -234,7 +228,7 @@ def _sample_to_array(sample: object, n: int) -> np.ndarray:
 
 
 def _parse_var_index(name: str) -> int | None:
-    """Extract integer index from variable name (e.g. b[12], x12, 12)."""
+    """从变量名中提取整数索引。"""
     if name.isdigit():
         return int(name)
     if "[" in name and "]" in name:
@@ -244,3 +238,4 @@ def _parse_var_index(name: str) -> int | None:
             return None
     digits = "".join(ch for ch in name if ch.isdigit())
     return int(digits) if digits else None
+

@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/core/graph_model.py
 ------------------------
 Graph-based representation of the logistics problem instance.
@@ -22,7 +22,7 @@ import pandas as pd
 
 
 # ---------------------------------------------------------------------------
-# Core data class
+# 核心数据类
 # ---------------------------------------------------------------------------
 
 
@@ -47,15 +47,15 @@ class ProblemGraph:
     n_customers: int = field(init=False)
 
     def __post_init__(self) -> None:
-        self.n_customers = len(self.nodes) - 1  # depot at index 0
+        self.n_customers = len(self.nodes) - 1  # 仓库点 at index 0
 
     # ------------------------------------------------------------------
-    # Accessors
+    # 访问属性
     # ------------------------------------------------------------------
 
     @property
     def depot_id(self) -> int:
-        """Integer ID of the depot node (always 0)."""
+        """返回配送中心节点编号，固定为 0。"""
         return 0
 
     @property
@@ -207,7 +207,7 @@ class ProblemGraph:
         return sum(self.travel(full[k], full[k + 1]) for k in range(len(full) - 1))
 
     # ------------------------------------------------------------------
-    # NetworkX conversion (for visualisation)
+    # 转换为 NetworkX 图用于可视化
     # ------------------------------------------------------------------
 
     def to_networkx(self) -> nx.DiGraph:
@@ -234,7 +234,7 @@ class ProblemGraph:
         return g
 
     # ------------------------------------------------------------------
-    # Repr
+    # 对象显示
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -245,7 +245,7 @@ class ProblemGraph:
 
 
 # ---------------------------------------------------------------------------
-# Factory helpers
+# 构造辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -296,3 +296,4 @@ def subgraph(graph: ProblemGraph, node_ids: list[int]) -> ProblemGraph:
     sub_nodes = graph.nodes[graph.nodes["node_id"].isin(ids)].reset_index(drop=True)
     sub_tt = graph.travel_time[np.ix_(ids, ids)]
     return ProblemGraph(nodes=sub_nodes, travel_time=sub_tt)
+

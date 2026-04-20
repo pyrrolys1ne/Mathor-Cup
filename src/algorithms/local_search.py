@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/algorithms/local_search.py
 --------------------------------
 Classical local-search improvement operators for TSP routes.
@@ -129,3 +129,4 @@ def or_opt(
 
     logger.debug("or-opt finished: cost=%.4f", best_cost)
     return best
+

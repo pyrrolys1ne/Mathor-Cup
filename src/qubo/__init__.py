@@ -1,1 +1,2 @@
-"""QUBO construction package."""
+﻿"""QUBO 构建模块。"""
+

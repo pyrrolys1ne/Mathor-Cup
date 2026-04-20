@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/algorithms/route_decode.py
 --------------------------------
 Decode QUBO binary solutions into valid routes.
@@ -48,8 +48,8 @@ def decode_sub_route(
     ----------
     O(K²) for decoding.
     """
-    # Q1 decoder returns local node indices in [0, K], where 0 is depot.
-    # For sub-problems we must map local indices back to original global node IDs.
+    # 第一题解码返回局部节点索引 零表示仓库
+    # 子问题需要将局部索引映射回全局节点编号
     route_local = decode_q1_solution(x, qubo_result.n_nodes, qubo_result.var_idx)
 
     local_to_global = [sub_graph.depot_id] + sorted(sub_graph.customer_ids)
@@ -105,7 +105,7 @@ def nearest_neighbour_route(
     current = start
 
     while unvisited:
-        # Find nearest unvisited
+        # 选择最近的未访问节点
         nearest = min(unvisited, key=lambda n: graph.travel(current, n))
         route.append(nearest)
         unvisited.remove(nearest)
@@ -113,3 +113,4 @@ def nearest_neighbour_route(
 
     route.append(graph.depot_id)
     return route
+
